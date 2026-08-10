@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
@@ -51,8 +52,11 @@ async def update_me(
             request_id=request_id,
         )
     except ValueError as e:
-        return build_error_response(
-            code=ERR_INVALID_INPUT,
-            message=str(e),
-            request_id=request_id,
+        return JSONResponse(
+            status_code=400,
+            content=build_error_response(
+                code=ERR_INVALID_INPUT,
+                message=str(e),
+                request_id=request_id,
+            ),
         )

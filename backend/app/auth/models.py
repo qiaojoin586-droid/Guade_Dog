@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, String, Text, func
+from sqlalchemy import BigInteger, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -18,7 +18,12 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # SQLite（测试环境）仅对 INTEGER PRIMARY KEY 自增，MySQL 用 BIGINT
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True, comment="手机号")
     email: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True, comment="邮箱")
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False, comment="密码哈希")

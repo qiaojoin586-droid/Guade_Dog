@@ -7,6 +7,7 @@
 
 import { create } from 'zustand';
 import api from '../services/api';
+import { clearTokens, getAccessToken } from '../services/tokenStorage';
 
 interface UserInfo {
   id: string;
@@ -37,13 +38,12 @@ export const useAppStore = create<AppState>((set) => ({
   setUser: (user) => set({ user, isAuthenticated: !!user }),
   setLoading: (isLoading) => set({ isLoading }),
   logout: () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
+    clearTokens();
     set({ user: null, isAuthenticated: false });
   },
 
   restoreSession: async () => {
-    const token = localStorage.getItem('access_token');
+    const token = getAccessToken();
     if (!token) {
       set({ isLoading: false });
       return;
@@ -66,15 +66,18 @@ export const useAppStore = create<AppState>((set) => ({
         });
       } else {
         // token 无效，清除
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
+        clearTokens();
         set({ user: null, isAuthenticated: false, isLoading: false });
       }
-    } catch {
-      // token 过期或网络错误，清除
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      set({ user: null, isAuthenticated: false, isLoading: false });
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        // token 过期且刷新失败（拦截器已尝试刷新），清空会话
+        clearTokens();
+        set({ user: null, isAuthenticated: false, isLoading: false });
+      } else {
+        // 网络/服务端错误：保留 token，避免误登出；进入未认证状态由用户重试
+        set({ user: null, isAuthenticated: false, isLoading: false });
+      }
     }
   },
 }));

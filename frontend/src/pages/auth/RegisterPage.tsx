@@ -5,17 +5,24 @@ import api from '../../services/api';
 export default function RegisterPage() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [agreed, setAgreed] = useState(true);
+  const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // 手机号格式校验（大陆手机号：1 开头 11 位数字）
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      setError('请输入正确的手机号');
+      return;
+    }
 
     if (password !== confirmPassword) {
       setError('两次输入的密码不一致');
@@ -31,7 +38,8 @@ export default function RegisterPage() {
 
     try {
       const { data } = await api.post('/auth/register', {
-        phone: email,
+        phone,
+        email: email || undefined,
         password,
         name,
         role: 'blind',
@@ -136,9 +144,32 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Email */}
+            {/* Phone */}
             <div>
-              <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-2">邮箱地址</label>
+              <label htmlFor="phone" className="block text-sm font-semibold text-gray-700 mb-2">手机号</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <input
+                  id="phone"
+                  type="tel"
+                  inputMode="numeric"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="请输入手机号"
+                  className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  required
+                  maxLength={11}
+                />
+              </div>
+            </div>
+
+            {/* Email (选填) */}
+            <div>
+              <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-2">邮箱地址（选填）</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                   <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -150,9 +181,8 @@ export default function RegisterPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="请输入邮箱地址"
+                  placeholder="请输入邮箱地址（选填）"
                   className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  required
                 />
               </div>
             </div>

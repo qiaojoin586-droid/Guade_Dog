@@ -3,11 +3,12 @@
  *
  * - baseURL: /api/v1
  * - 请求拦截器: 自动附带 Authorization: Bearer token
- * - 响应拦截器: 401 → 调 /auth/refresh 重放一次
+ * - 响应拦截器: 401 → 调 /auth/refresh 刷新后重放原请求；刷新失败 → 清 token 跳登录
  * - 错误码 → 可播报文案映射表
  */
 
 import axios from 'axios';
+import { clearTokens, getAccessToken, getRefreshToken, isPersistent, setTokens } from './tokenStorage';
 
 const api = axios.create({
   baseURL: '/api/v1',
@@ -17,16 +18,25 @@ const api = axios.create({
   },
 });
 
+// 不带拦截器的裸实例：用于刷新请求本身，避免 401 时无限递归
+const rawApi = axios.create({
+  baseURL: '/api/v1',
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
 // 请求拦截器：自动附带 JWT
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// 响应拦截器：401 自动刷新 token
+// 响应拦截器：401 自动刷新 token 并重放原请求
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -35,18 +45,21 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        // TODO: 调用 /auth/refresh 刷新 token
-        const refreshToken = localStorage.getItem('refresh_token');
+        const refreshToken = getRefreshToken();
         if (!refreshToken) {
           throw new Error('无 refresh token');
         }
-        // const { data } = await axios.post('/api/v1/auth/refresh', { refresh_token: refreshToken });
-        // localStorage.setItem('access_token', data.access_token);
-        // originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
-        // return api(originalRequest);
+        const { data } = await rawApi.post('/auth/refresh', { refresh_token: refreshToken });
+        if (data.code !== 200 || !data.data?.access_token) {
+          throw new Error('刷新 token 失败');
+        }
+        const { access_token, refresh_token } = data.data;
+        setTokens(access_token, refresh_token || refreshToken, isPersistent());
+        originalRequest.headers.Authorization = `Bearer ${access_token}`;
+        return api(originalRequest);
       } catch {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
+        // 刷新失败（refresh token 过期/无效/网络错误）：清会话并回登录页
+        clearTokens();
         window.location.href = '/auth/login';
       }
     }
