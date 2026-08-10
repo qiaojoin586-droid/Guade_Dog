@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAppStore } from '../../stores/useAppStore';
 import api from '../../services/api';
+import { setTokens } from '../../services/tokenStorage';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -22,11 +23,8 @@ export default function LoginPage() {
       const { data } = await api.post('/auth/login', { account, password });
       if (data.code === 200) {
         const { access_token, refresh_token, user_id, name, role, phone, email, avatar_url } = data.data;
-        localStorage.setItem('access_token', access_token);
-        localStorage.setItem('refresh_token', refresh_token);
-        if (rememberMe) {
-          localStorage.setItem('remember_me', 'true');
-        }
+        // 勾选「记住我」存 localStorage，否则存 sessionStorage（关浏览器即退出）
+        setTokens(access_token, refresh_token, rememberMe);
         setUser({
           id: String(user_id),
           name,
