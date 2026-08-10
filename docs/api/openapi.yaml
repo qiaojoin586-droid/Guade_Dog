@@ -1,0 +1,86 @@
+openapi: "3.0.3"
+info:
+  title: 导盲AI智能体 API
+  description: 面向视障人士的AI辅助应用接口
+  version: 0.1.0
+  contact:
+    name: Guide Dog AI Team
+
+servers:
+  - url: /api/v1
+    description: API v1
+
+paths:
+  /health:
+    get:
+      summary: 健康检查
+      tags: [system]
+      responses:
+        "200":
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  # === 以下为路由骨架，详细接口后续补充 ===
+
+  /speech/asr:
+    post:
+      summary: 语音识别（占位）
+      tags: [conversation]
+      responses:
+        "200":
+          description: TODO
+
+  /speech/tts:
+    post:
+      summary: 语音合成（占位）
+      tags: [conversation]
+      responses:
+        "200":
+          description: TODO
+
+  /auth/login:
+    post:
+      summary: 用户登录（占位）
+      tags: [conversation]
+      responses:
+        "200":
+          description: TODO
+
+  /auth/register:
+    post:
+      summary: 用户注册（占位）
+      tags: [conversation]
+      responses:
+        "200":
+          description: TODO
+
+  /navigation/ping:
+    get:
+      summary: Navigation 模块连通性检查
+      tags: [navigation]
+      responses:
+        "200":
+          description: 模块正常
+
+  /safety/ping:
+    get:
+      summary: Safety 模块连通性检查
+      tags: [safety]
+      responses:
+        "200":
+          description: 模块正常
+
+  /perception/ping:
+    get:
+      summary: Perception 模块连通性检查
+      tags: [perception]
+      responses:
+        "200":
+          description: 模块正常

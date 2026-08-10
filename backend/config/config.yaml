@@ -1,0 +1,53 @@
+# ============================================================
+# 导盲AI智能体 - 非敏感配置 (可提交到代码仓库)
+#
+# 职责划分:
+#   * 本文件: 非敏感、结构化的普通配置 (名称/端口/模型/超时等)
+#   * backend/.env: 敏感配置 (SECRET_KEY、密码、API key 等, 已被 .gitignore 排除)
+#   * 优先级: 环境变量(系统 > .env) > 本文件 > 内置默认值
+#
+# 修改配置: 非敏感项改这里, 敏感项改 backend/.env
+# ============================================================
+
+# ===== 应用基础 =====
+app:
+  name: guide-dog-ai            # 应用名称(仅日志展示)
+  debug: true                   # 调试模式: true 时 SQLAlchemy 打印全部 SQL
+  api_v1_prefix: /api/v1        # API 版本前缀(预留)
+
+# ===== 数据库 (MySQL 8) =====
+# 账号密码属敏感信息 → 在 .env 配置 MYSQL_USER / MYSQL_PASSWORD
+database:
+  host: localhost
+  port: 3306
+  db: guide_dog
+  charset: utf8mb4
+
+# ===== 对象存储 (MinIO) =====
+# ACCESS_KEY / SECRET_KEY 属敏感信息 → 在 .env 配置
+minio:
+  endpoint: localhost:9000
+  bucket: guide-dog-assets
+
+# ===== 模型选择 =====
+# 所有 API key 属敏感信息 → 在 .env 配置
+models:
+  dashscope: qwen-max
+  dashscope_vision: qwen-vl-max
+  deepseek: deepseek-chat
+  deepseek_vision: deepseek-chat
+
+# ===== 语音唤醒 =====
+wake_word: 你好导盲
+
+# ===== JWT =====
+# JWT_SECRET_KEY 属敏感信息 → 在 .env 配置
+jwt:
+  algorithm: HS256
+  access_expire_minutes: 15
+  refresh_expire_days: 7
+
+# ===== WebSocket =====
+websocket:
+  heartbeat_interval: 30
+  reconnect_delay: 3

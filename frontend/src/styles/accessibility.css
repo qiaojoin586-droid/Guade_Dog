@@ -1,0 +1,45 @@
+/**
+ * 无障碍专用样式。
+ *
+ * 大字号（≥18px）、高对比度基础变量。
+ */
+
+:root {
+  /* 基础字号 */
+  --a11y-font-base: 18px;
+  --a11y-font-lg: 20px;
+  --a11y-font-xl: 24px;
+
+  /* 高对比度颜色 */
+  --hc-bg: #000000;
+  --hc-text: #ffffff;
+  --hc-link: #ffff00;
+  --hc-border: #ffffff;
+}
+
+/* 高对比度模式 */
+.high-contrast {
+  background-color: var(--hc-bg) !important;
+  color: var(--hc-text) !important;
+}
+
+.high-contrast a {
+  color: var(--hc-link) !important;
+}
+
+.high-contrast button {
+  border-color: var(--hc-border) !important;
+}
+
+/* 屏幕阅读器专用（视觉隐藏） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
