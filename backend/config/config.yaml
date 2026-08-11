@@ -30,15 +30,28 @@ minio:
   bucket: guide-dog-assets
 
 # ===== 模型选择 =====
+# 起步阶段只使用三个大模型：
+#   * 讯飞 ASR      —— 语音转文字（IAT 实时转写, API key 在 .env 配置 XFYUN_*）
+#   * 阿里云千问    —— 核心调度 LLM（意图判断/对话, API key 在 .env 配置 DASHSCOPE_API_KEY）
+#   * 讯飞 TTS      —— 语音合成播报（与 ASR 共用 XFYUN_* 凭据）
 # 所有 API key 属敏感信息 → 在 .env 配置
 models:
-  dashscope: qwen-max
-  dashscope_vision: qwen-vl-max
-  deepseek: deepseek-chat
-  deepseek_vision: deepseek-chat
+  provider: dashscope                 # LLM 供应商: dashscope(阿里千问) | spark(讯飞星火备用)
+  dashscope: qwen3.7-flash
+  dashscope_vision: qwen3.7-flash
+  spark_url: wss://spark-api.xf-yun.com/v4.0/chat   # Spark Ultra-32K(备用)
+  spark_domain: 4.0Ultra
+  spark_timeout_seconds: 30
 
-# ===== 语音唤醒 =====
-wake_word: 你好导盲
+# ===== 语音 (讯飞 ASR/TTS) =====
+# 凭据属敏感信息 → 在 .env 配置 XFYUN_APP_ID / XFYUN_API_KEY / XFYUN_API_SECRET
+speech:
+  asr_url: wss://iat-api.xfyun.cn/v2/iat   # 语音听写(中文)
+  tts_url: wss://tts-api.xfyun.cn/v2/tts   # 语音合成
+  sample_rate: 16000                        # 讯飞要求 16k 16bit 单声道 PCM
+  asr_timeout_seconds: 15
+  tts_timeout_seconds: 15
+  max_upload_bytes: 5242880                 # 前端上传音频上限 5MB
 
 # ===== JWT =====
 # JWT_SECRET_KEY 属敏感信息 → 在 .env 配置

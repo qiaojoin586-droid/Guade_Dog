@@ -44,6 +44,18 @@ export interface User {
   email?: string;
 }
 
+// ===== 语音 =====
+
+export interface AsrResult {
+  text: string;
+  confidence: number;
+}
+
+export interface ChatResult {
+  text: string;
+  tool_called: string | null;
+}
+
 // ===== 导航 =====
 
 export interface Location {

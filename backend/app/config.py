@@ -49,10 +49,20 @@ _YAML_MAP: dict[str, dict[str, str]] = {
         "bucket": "MINIO_BUCKET",
     },
     "models": {
+        "provider": "LLM_PROVIDER",
         "dashscope": "DASHSCOPE_MODEL",
         "dashscope_vision": "DASHSCOPE_VISION_MODEL",
-        "deepseek": "DEEPSEEK_MODEL",
-        "deepseek_vision": "DEEPSEEK_VISION_MODEL",
+        "spark_url": "SPARK_CHAT_URL",
+        "spark_domain": "SPARK_DOMAIN",
+        "spark_timeout_seconds": "SPARK_TIMEOUT_SECONDS",
+    },
+    "speech": {
+        "asr_url": "SPEECH_ASR_URL",
+        "tts_url": "SPEECH_TTS_URL",
+        "sample_rate": "SPEECH_SAMPLE_RATE",
+        "asr_timeout_seconds": "SPEECH_ASR_TIMEOUT_SECONDS",
+        "tts_timeout_seconds": "SPEECH_TTS_TIMEOUT_SECONDS",
+        "max_upload_bytes": "SPEECH_MAX_UPLOAD_BYTES",
     },
     "jwt": {
         "algorithm": "JWT_ALGORITHM",
@@ -65,9 +75,6 @@ _YAML_MAP: dict[str, dict[str, str]] = {
     },
 }
 
-# yaml 顶层标量键
-_YAML_SCALARS: dict[str, str] = {"wake_word": "WAKE_WORD"}
-
 # 仅允许通过 .env / 环境变量配置的敏感字段
 _ENV_ONLY: set[str] = {
     "SECRET_KEY",
@@ -76,13 +83,11 @@ _ENV_ONLY: set[str] = {
     "MINIO_ACCESS_KEY",
     "MINIO_SECRET_KEY",
     "DASHSCOPE_API_KEY",
-    "DEEPSEEK_API_KEY",
     "XFYUN_APP_ID",
     "XFYUN_API_KEY",
     "XFYUN_API_SECRET",
     "AMAP_API_KEY",
     "QWEATHER_API_KEY",
-    "PORCUPINE_ACCESS_KEY",
     "JWT_SECRET_KEY",
     "CELERY_BROKER_URL",
 }
@@ -101,11 +106,9 @@ _WARN_KEYS: list[tuple[str, str]] = [
     ("SECRET_KEY", "全局签名密钥"),
     ("JWT_SECRET_KEY", "JWT 签名密钥"),
     ("DASHSCOPE_API_KEY", "阿里云 Qwen"),
-    ("DEEPSEEK_API_KEY", "DeepSeek"),
     ("XFYUN_APP_ID", "讯飞语音"),
     ("AMAP_API_KEY", "高德地图"),
     ("QWEATHER_API_KEY", "和风天气"),
-    ("PORCUPINE_ACCESS_KEY", "语音唤醒"),
 ]
 
 # ============================================================
@@ -140,26 +143,36 @@ class Settings:
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET: str = "guide-dog-assets"
 
-    # ===== 阿里云 Qwen (DashScope) =====
+    # ===== LLM 供应商选择 =====
+    # provider: dashscope(阿里千问,默认) | spark(讯飞星火备用)
+    LLM_PROVIDER: str = "dashscope"
+    # 讯飞星火 (WebSocket, 与 ASR/TTS 共用 XFYUN_* 凭据)
+    SPARK_CHAT_URL: str = "wss://spark-api.xf-yun.com/v4.0/chat"
+    SPARK_DOMAIN: str = "4.0Ultra"        # Spark Ultra-32K
+    SPARK_TIMEOUT_SECONDS: float = 30.0
+
+    # ===== 阿里云 Qwen (DashScope) — 备用 LLM 与多模态 =====
     DASHSCOPE_API_KEY: Optional[str] = None
-    DASHSCOPE_MODEL: str = "qwen-max"
-    DASHSCOPE_VISION_MODEL: str = "qwen-vl-max"
+    DASHSCOPE_MODEL: str = "qwen-max"          # 核心调度 LLM（意图判断/对话）
+    DASHSCOPE_VISION_MODEL: str = "qwen-vl-max"  # 多模态（图像理解）
 
-    # ===== DeepSeek =====
-    DEEPSEEK_API_KEY: Optional[str] = None
-    DEEPSEEK_MODEL: str = "deepseek-chat"
-    DEEPSEEK_VISION_MODEL: str = "deepseek-chat"
-
-    # ===== 讯飞语音 =====
+    # ===== 讯飞语音（ASR 语音转文字） =====
     XFYUN_APP_ID: Optional[str] = None
     XFYUN_API_KEY: Optional[str] = None
     XFYUN_API_SECRET: Optional[str] = None
 
-    # ===== 高德地图 / 和风天气 / 语音唤醒 =====
+    # ===== 语音 (讯飞 ASR/TTS) =====
+    # 凭据 XFYUN_* 在 .env;以下为非敏感运行参数
+    SPEECH_ASR_URL: str = "wss://iat-api.xfyun.cn/v2/iat"
+    SPEECH_TTS_URL: str = "wss://tts-api.xfyun.cn/v2/tts"
+    SPEECH_SAMPLE_RATE: int = 16000
+    SPEECH_ASR_TIMEOUT_SECONDS: float = 15.0
+    SPEECH_TTS_TIMEOUT_SECONDS: float = 15.0
+    SPEECH_MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024
+
+    # ===== 高德地图 / 和风天气 =====
     AMAP_API_KEY: Optional[str] = None
     QWEATHER_API_KEY: Optional[str] = None
-    PORCUPINE_ACCESS_KEY: Optional[str] = None
-    WAKE_WORD: str = "你好导盲"
 
     # ===== JWT =====
     JWT_SECRET_KEY: str = "change-me"
@@ -222,9 +235,6 @@ def _yaml_flat() -> dict[str, Any]:
         for yaml_key, field_name in fields_map.items():
             if yaml_key in section_data and section_data[yaml_key] is not None:
                 flat[field_name] = section_data[yaml_key]
-    for yaml_key, field_name in _YAML_SCALARS.items():
-        if yaml_key in raw and raw[yaml_key] is not None:
-            flat[field_name] = raw[yaml_key]
     return flat
 
 
@@ -273,6 +283,17 @@ def _warn_missing_keys(settings: Settings) -> None:
     if missing:
         warnings.warn(
             f"以下密钥未配置（请在 backend/.env 中设置），相关功能将不可用: {', '.join(missing)}",
+            stacklevel=2,
+        )
+    # 讯飞 APIKey 与 APISecret 是两个不同的随机串,填成一样必然验签失败
+    if (
+        settings.XFYUN_API_KEY
+        and settings.XFYUN_API_SECRET
+        and settings.XFYUN_API_KEY == settings.XFYUN_API_SECRET
+    ):
+        warnings.warn(
+            "XFYUN_API_KEY 与 XFYUN_API_SECRET 相同!请到讯飞控制台「我的应用」分别复制 "
+            "APIKey 与 APISecret 两个字段,它们必须是不同的字符串",
             stacklevel=2,
         )
 

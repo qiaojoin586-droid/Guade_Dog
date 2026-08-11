@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../stores/useAppStore';
 import api from '../services/api';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
+import { sendToLLM, speechToText, textToSpeech } from '../services/speechService';
 
 const navItems = [
   { id: 'profile', label: '个人资料', icon: 'user' },
@@ -17,6 +19,13 @@ const quickActions = [
   { label: '今天天气', intent: 'weather' },
   { label: '紧急求救', intent: 'sos' },
 ];
+
+// 快捷指令 → 发送给 LLM 的文本
+const QUICK_ACTION_TEXT: Record<string, string> = {
+  navigation_home: '导航回家',
+  weather: '今天天气怎么样',
+  sos: '紧急求救',
+};
 
 const featureCards = [
   {
@@ -163,8 +172,53 @@ export default function MainPage() {
   const navigate = useNavigate();
   const { user, logout, setUser } = useAppStore();
   const [activeNav, setActiveNav] = useState('voice');
-  const [listening, setListening] = useState(true);
   const [showProfileModal, setShowProfileModal] = useState(false);
+
+  // 语音闭环: 按住说话 → ASR → LLM → 工具调用(后端日志占位) → 回复展示/播报
+  const { isRecording, error: recorderError, start: startRecording, stop: stopRecording } =
+    useVoiceRecorder();
+  const [userText, setUserText] = useState('');
+  const [assistantText, setAssistantText] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  const handleTextInput = async (text: string) => {
+    setUserText(text);
+    setAssistantText('正在思考...');
+    try {
+      const result = await sendToLLM(text);
+      setAssistantText(result.text || '好的');
+      if (result.text) {
+        textToSpeech(result.text).catch(() => {});
+      }
+    } catch (err: any) {
+      setAssistantText(err.response?.data?.message || '请求失败，请重试');
+    }
+  };
+
+  const processVoice = async (blob: Blob) => {
+    setProcessing(true);
+    try {
+      const { text } = await speechToText(blob);
+      if (!text) {
+        setAssistantText('没听清，请再说一次');
+        return;
+      }
+      await handleTextInput(text);
+    } catch (err: any) {
+      setAssistantText(err.response?.data?.message || '语音识别失败，请重试');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleMicPress = () => {
+    startRecording();
+  };
+
+  const handleMicRelease = async () => {
+    const blob = await stopRecording();
+    if (blob) await processVoice(blob);
+  };
 
   // 加载用户完整资料
   useEffect(() => {
@@ -195,8 +249,7 @@ export default function MainPage() {
   };
 
   const handleQuickAction = (intent: string) => {
-    // TODO: 发送语音指令到后端
-    console.log('Quick action:', intent);
+    handleTextInput(QUICK_ACTION_TEXT[intent] || intent);
   };
 
   const handleSOS = () => {
@@ -321,15 +374,21 @@ export default function MainPage() {
             <div className="relative z-10">
               {/* Status */}
               <div className="inline-flex items-center gap-2 px-5 py-2 bg-white/10 backdrop-blur rounded-full text-sm mb-10">
-                <span className={`w-2.5 h-2.5 rounded-full ${listening ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`} />
-                {listening ? '正在收听...' : '待机中'}
+                <span className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-red-400 animate-pulse' : processing ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'}`} />
+                {isRecording ? '正在录音...' : processing ? '正在识别...' : '待机中'}
               </div>
 
-              {/* Mic Button */}
+              {/* Mic Button: 按住说话,松手识别 */}
               <button
-                onClick={() => setListening(!listening)}
-                className="w-28 h-28 bg-white rounded-full flex items-center justify-center mx-auto mb-10 shadow-2xl shadow-blue-900/30 hover:scale-105 transition-transform"
-                aria-label={listening ? '停止收听' : '开始收听'}
+                onPointerDown={handleMicPress}
+                onPointerUp={handleMicRelease}
+                onPointerLeave={handleMicRelease}
+                onPointerCancel={handleMicRelease}
+                disabled={processing}
+                className={`w-28 h-28 bg-white rounded-full flex items-center justify-center mx-auto mb-10 shadow-2xl shadow-blue-900/30 transition-transform hover:scale-105 ${
+                  isRecording ? 'scale-105 bg-red-100' : ''
+                } ${processing ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                aria-label={isRecording ? '停止录音' : '按住说话'}
               >
                 <svg className="w-12 h-12 text-[#1a4a8a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
@@ -351,8 +410,31 @@ export default function MainPage() {
 
               {/* Hint */}
               <p className="text-xl text-blue-100/80">
-                轻触麦克风或说「你好导盲」唤醒
+                {isRecording ? '正在聆听，松开结束' : '按住麦克风说话，松手自动识别'}
               </p>
+
+              {/* Transcript: 我说什么 + 助手回复 */}
+              {(userText || assistantText || recorderError) && (
+                <div className="mt-8 space-y-3 text-left max-w-md mx-auto w-full">
+                  {userText && (
+                    <div className="bg-white/10 backdrop-blur rounded-xl px-4 py-3 text-sm leading-relaxed">
+                      <span className="text-blue-200 font-medium mr-2">我:</span>
+                      <span className="text-white">{userText}</span>
+                    </div>
+                  )}
+                  {assistantText && (
+                    <div className="bg-white/15 backdrop-blur rounded-xl px-4 py-3 text-sm leading-relaxed">
+                      <span className="text-blue-200 font-medium mr-2">助手:</span>
+                      <span className="text-white">{assistantText}</span>
+                    </div>
+                  )}
+                  {recorderError && (
+                    <div className="bg-red-500/20 backdrop-blur rounded-xl px-4 py-3 text-sm text-red-100">
+                      {recorderError}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

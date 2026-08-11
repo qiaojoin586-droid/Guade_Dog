@@ -22,6 +22,13 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.core.errors import ERR_INTERNAL, build_error_response
 
+# uvicorn 默认不配置 root logger,应用日志(如工具调用占位)不会输出;
+# basicConfig 仅在 root 无 handler 时生效,不影响 uvicorn 自身日志。
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 
 
