@@ -64,6 +64,36 @@ export interface Location {
   accuracy?: number;
 }
 
+/** 当前位置（逆地理编码返回） */
+export interface LocationResult {
+  coords: { lat: number; lng: number };
+  address: string;
+  city: string;
+  source: 'gps' | 'ip';
+  tts_text: string;
+}
+
+/** 单步路线指令 */
+export interface RouteStepItem {
+  instruction: string;
+  distance_m: number;
+}
+
+/** 路线总览 */
+export interface RouteSummary {
+  distance_m: number;
+  duration_min: number;
+  start_address: string;
+  end_address: string;
+}
+
+/** 路线规划返回 */
+export interface RouteResult {
+  summary: RouteSummary;
+  steps: RouteStepItem[];
+  tts_text: string;
+}
+
 export interface RouteInfo {
   origin: string;
   destination: string;

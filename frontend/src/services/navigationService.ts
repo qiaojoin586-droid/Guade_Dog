@@ -1,23 +1,88 @@
 /**
- * 导航服务 API（占位）。
+ * 导航服务 API。
+ *
+ * 对接后端 Navigation Agent 的 REST 端点。
  */
 
-import api from './api';
+import api, { getVoiceTextForError } from './api';
+import type { LocationResult, RouteResult } from '../types';
 
-export async function planRoute(origin: string, destination: string) {
-  // TODO: 实现路线规划接口调用
-  const { data } = await api.post('/navigation/route', { origin, destination });
-  return data.data;
+/** 后端返回结构可能是成功 {code:200, data:...} 或失败 {code:4xxxx, message:...} */
+interface ApiBody<T> {
+  code: number;
+  data?: T;
+  message?: string;
 }
 
-export async function getCurrentLocation() {
-  // TODO: 实现位置获取接口调用
-  const { data } = await api.get('/navigation/location');
-  return data.data;
+/** 从响应中取 data; 失败时把 message 或错误码映射文案作为异常抛出 */
+function unwrap<T>(body: ApiBody<T>): T {
+  if (body.code === 200 && body.data !== undefined) {
+    return body.data;
+  }
+  const msg = body.message || getVoiceTextForError(body.code);
+  throw new Error(msg);
 }
 
+/**
+ * 获取浏览器 GPS 坐标（包装为 Promise）。
+ * 失败时返回 null，调用方负责降级提示。
+ */
+function getBrowserLocation(): Promise<{ lat: number; lng: number } | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  });
+}
+
+/**
+ * 获取当前位置（逆地理编码）。
+ *
+ * 流程: 浏览器 GPS → 后端逆地理编码 → 返回地址 + 播报文案。
+ * GPS 被拒/超时时传空参数，后端用 IP 粗定位兜底。
+ */
+export async function getCurrentLocation(): Promise<LocationResult> {
+  const coords = await getBrowserLocation();
+  const params = coords
+    ? `?lat=${coords.lat}&lng=${coords.lng}`
+    : '';
+  const { data } = await api.get<ApiBody<LocationResult>>(`/navigation/location${params}`);
+  return unwrap(data);
+}
+
+/**
+ * 规划步行路线。
+ *
+ * @param destination - 目的地地址或名称
+ * @param origin - 起点坐标，不传则后端用 IP 粗定位兜底
+ */
+export async function planRoute(
+  destination: string,
+  origin?: { lat: number; lng: number } | null,
+): Promise<RouteResult> {
+  const body: { destination: string; origin?: { lat: number; lng: number } } = { destination };
+  if (origin) {
+    body.origin = origin;
+  }
+  const { data } = await api.post<ApiBody<RouteResult>>('/navigation/route', body);
+  return unwrap(data);
+}
+
+/**
+ * 获取浏览器 GPS 坐标（不调后端，仅拿坐标）。
+ */
+export { getBrowserLocation };
+
+/**
+ * 周边 POI 查询（预留，下期实现）。
+ */
 export async function searchNearbyPOI(query: string, location?: { lat: number; lng: number }) {
-  // TODO: 实现 POI 查询接口调用
   const { data } = await api.get('/navigation/poi', { params: { query, ...location } });
   return data.data;
 }
