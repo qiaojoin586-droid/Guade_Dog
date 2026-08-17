@@ -25,6 +25,7 @@ yarn-error.log*
 # ===== 前端构建产物 =====
 frontend/dist/
 frontend/build/
+frontend/tsconfig.tsbuildinfo
 
 # ===== IDE =====
 .vscode/
@@ -44,7 +45,7 @@ docker-compose.override.yml
 # ===== 日志 =====
 *.log
 logs/
-
+*.out
 # ===== 测试 =====
 .pytest_cache/
 .coverage
@@ -54,3 +55,9 @@ coverage/
 # ===== Alembic =====
 # 保留 alembic/versions/ 下的迁移文件，但忽略自动生成的临时文件
 alembic/versions/__pycache__/
+
+# ===== 本地 MySQL 运行时数据 =====
+backend/.mysql/
+运行分析/
+
+
