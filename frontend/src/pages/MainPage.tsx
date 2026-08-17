@@ -290,6 +290,8 @@ export default function MainPage() {
               onClick={() => {
                 if (item.id === 'profile') {
                   setShowProfileModal(true);
+                } else if (item.id === 'safety') {
+                  navigate('/app/safety');
                 } else {
                   setActiveNav(item.id);
                 }
@@ -448,7 +450,13 @@ export default function MainPage() {
               {featureCards.map((card) => (
                 <button
                   key={card.id}
-                  onClick={() => setActiveNav(card.id)}
+                  onClick={() => {
+                    if (card.id === 'safety') {
+                      navigate('/app/safety');
+                    } else {
+                      setActiveNav(card.id);
+                    }
+                  }}
                   className={`${card.color} rounded-2xl p-6 text-left hover:shadow-lg transition-all group`}
                 >
                   <div className="flex items-start justify-between mb-4">
