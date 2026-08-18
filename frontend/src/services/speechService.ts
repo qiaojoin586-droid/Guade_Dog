@@ -29,9 +29,15 @@ export async function speechToText(audioBlob: Blob): Promise<AsrResult> {
   return data.data;
 }
 
-/** 识别文本进 LLM,返回回复(工具调用为后端日志占位) */
-export async function sendToLLM(text: string): Promise<ChatResult> {
-  const { data } = await api.post('/conversation/chat', { text });
+/**
+ * 识别文本进 LLM,返回回复。
+ * coords: 浏览器 GPS 坐标(尽力获取,拿不到传 null),供后端定位/导航工具使用。
+ */
+export async function sendToLLM(
+  text: string,
+  coords?: { lat: number; lng: number } | null,
+): Promise<ChatResult> {
+  const { data } = await api.post('/conversation/chat', { text, coords: coords || undefined });
   return data.data;
 }
 

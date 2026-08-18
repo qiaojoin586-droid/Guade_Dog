@@ -1,10 +1,11 @@
-"""工具注册表 —— LLM 工具调用的预留接口(★核心预留点)。
+"""工具注册表 —— LLM 工具调用的注册与分发(单 LLM 调度核心)。
 
 每个工具 = ToolSpec(name, description, params_schema, agent_module, handler):
   * description / params_schema 动态拼进 LLM 系统提示词,让 LLM 选工具、填参数;
-  * handler 负责执行。当前全部挂 _log_only 占位(结构化日志输出);
-  * agent_module 对应 orchestrator.INTENT_ROUTING 的模块名,真实实现时由它
-    路由到各 Agent(构造 AgentRequest 调 orchestrator.route())。
+  * handler 负责执行: 构造 AgentRequest 调 orchestrator.route() 路由到对应 Agent 模块
+    (Agent 模块是平级工具,互不调用,全部由调度 LLM 选择);
+  * agent_module 对应 orchestrator.INTENT_ROUTING 的模块名;
+  * 全部工具已接真实 handler;新增工具未实现时先挂 _log_only 占位。
 """
 
 from __future__ import annotations
@@ -49,6 +50,39 @@ async def _log_only(params: dict, context: dict, spec: "ToolSpec") -> dict:
     return {"status": "not_implemented", "tool": spec.name}
 
 
+async def _route_to_agent(params: dict, context: dict, intent: str) -> dict:
+    """真实工具分发: 构造 AgentRequest 走 orchestrator 路由到对应 Agent。
+
+    返回 {text, data?},text 为可播报文案(chat.py 会拼进回复)。
+    """
+    from app.agents import get_orchestrator
+    from app.core.agent_protocol import AgentRequest
+
+    orchestrator = get_orchestrator()
+    resp = await orchestrator.route(
+        AgentRequest(
+            session_id=context.get("session_id", ""),
+            user_id=context.get("user_id", ""),
+            intent=intent,
+            params=params,
+            context=context,
+        )
+    )
+    result: dict = {"text": resp.text}
+    if resp.data:
+        result["data"] = resp.data
+    return result
+
+
+def _make_agent_handler(intent: str) -> ToolHandler:
+    """按意图生成真实 handler(闭包绑定 intent)。"""
+
+    async def handler(params: dict, context: dict, spec: "ToolSpec") -> dict:
+        return await _route_to_agent(params, context, intent)
+
+    return handler
+
+
 TOOL_REGISTRY: dict[str, ToolSpec] = {
     "navigation.start": ToolSpec(
         name="navigation.start",
@@ -59,17 +93,24 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "required": ["destination"],
         },
         agent_module="navigation",
-        handler=_log_only,
+        handler=_make_agent_handler("navigation"),  # 已接真实导航服务
+    ),
+    "navigation.location": ToolSpec(
+        name="navigation.location",
+        description="查询用户当前所在位置/地址。用户询问我在哪、我的位置、当前位置、定位等意图时使用。",
+        params_schema={"type": "object", "properties": {}},
+        agent_module="navigation",
+        handler=_make_agent_handler("location"),  # 已接真实定位服务
     ),
     "safety.sos": ToolSpec(
         name="safety.sos",
-        description="触发紧急求救(SOS),通知家属与救援。用户表达危险、求助、救命等意图时使用。",
+        description="触发紧急求救(SOS)。用户表达危险、求助、救命、摔倒等紧急意图时使用。",
         params_schema={
             "type": "object",
             "properties": {"location": {"type": "string", "description": "当前位置描述,可选"}},
         },
         agent_module="safety",
-        handler=_log_only,
+        handler=_make_agent_handler("sos"),  # 已接真实求救服务
     ),
     "perception.weather": ToolSpec(
         name="perception.weather",
@@ -79,7 +120,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "properties": {"city": {"type": "string", "description": "城市名,可选,默认使用定位"}},
         },
         agent_module="perception",
-        handler=_log_only,
+        handler=_make_agent_handler("weather"),  # 已接真实天气服务
     ),
     "perception.reminder": ToolSpec(
         name="perception.reminder",
@@ -88,12 +129,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             "type": "object",
             "properties": {
                 "content": {"type": "string", "description": "提醒内容"},
-                "time": {"type": "string", "description": "提醒时间,如 明天上午9点"},
+                "time": {"type": "string", "description": "提醒时间,如 半小时后、明天上午9点"},
             },
             "required": ["content"],
         },
         agent_module="perception",
-        handler=_log_only,
+        handler=_make_agent_handler("reminder"),  # 已接真实提醒服务
     ),
 }
 

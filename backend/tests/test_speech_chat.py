@@ -10,21 +10,23 @@ from app.core import llm
 
 @pytest.mark.asyncio
 async def test_chat_dispatch_tool(monkeypatch):
-    """LLM 选中工具 → 分发执行,返回 chat_reply 与 tool_called。"""
+    """LLM 选中工具 → 分发执行真实 handler(不触网),返回 chat_reply + 工具结果。"""
 
     async def fake_complete(prompt, model=None, json_mode=False, system=None):
         return json.dumps(
             {
-                "tool": "navigation.start",
-                "params": {"destination": "地铁站"},
-                "chat_reply": "好的,正在为您规划去地铁站的路线",
+                "tool": "safety.sos",
+                "params": {},
+                "chat_reply": "已为您触发紧急求救",
             }
         )
 
     monkeypatch.setattr(llm, "complete", fake_complete)
-    resp = await chat.chat("导航到地铁站", "s1", "u1")
-    assert resp.text == "好的,正在为您规划去地铁站的路线"
-    assert resp.data == {"tool_called": "navigation.start"}
+    resp = await chat.chat("救命", "s1", "u1")
+    # chat_reply 与 SafetyAgent 返回的急救指引拼接播报
+    assert "已为您触发紧急求救" in resp.text
+    assert "120" in resp.text
+    assert resp.data["tool_called"] == "safety.sos"
 
 
 @pytest.mark.asyncio
@@ -78,3 +80,44 @@ async def test_chat_fallback_on_bad_json(monkeypatch):
     monkeypatch.setattr(llm, "complete", fake_complete)
     resp = await chat.chat("测试", "s1", "u1")
     assert "抱歉" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_chat_short_ack_uses_tool_result(monkeypatch):
+    """chat_reply 只是纯衔接语(≤6字)时,直接用工具结果播报,避免重复。"""
+
+    async def fake_complete(prompt, model=None, json_mode=False, system=None):
+        return json.dumps({"tool": "safety.sos", "params": {}, "chat_reply": "好的"})
+
+    async def fake_dispatch(tool, params, context):
+        return {"text": "已收到您的求救信号，请保持冷静。"}
+
+    monkeypatch.setattr(llm, "complete", fake_complete)
+    monkeypatch.setattr(chat, "dispatch", fake_dispatch)
+    resp = await chat.chat("救命", "s1", "u1")
+    assert resp.text == "已收到您的求救信号，请保持冷静。"
+
+
+@pytest.mark.asyncio
+async def test_chat_passes_coords_into_tool_context(monkeypatch):
+    """前端 GPS 坐标透传进工具上下文,并拼接工具返回的位置文本。"""
+    captured: dict = {}
+
+    async def fake_dispatch(tool, params, context):
+        captured.update(context)
+        return {"text": "您当前在北京市东城区测试路1号", "data": {"address": "测试路1号"}}
+
+    async def fake_complete(prompt, model=None, json_mode=False, system=None):
+        return json.dumps(
+            {"tool": "navigation.location", "params": {}, "chat_reply": "正在为您查询当前位置"}
+        )
+
+    monkeypatch.setattr(llm, "complete", fake_complete)
+    monkeypatch.setattr(chat, "dispatch", fake_dispatch)
+    resp = await chat.chat("我在哪", "s1", "u1", coords={"lat": 39.9, "lng": 116.4})
+
+    assert captured["coords"] == {"lat": 39.9, "lng": 116.4}
+    assert "正在为您查询当前位置" in resp.text
+    assert "测试路1号" in resp.text
+    assert resp.data["tool_called"] == "navigation.location"
+    assert resp.data["tool_data"]["address"] == "测试路1号"

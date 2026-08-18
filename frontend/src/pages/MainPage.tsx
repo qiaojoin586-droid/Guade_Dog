@@ -4,6 +4,7 @@ import { useAppStore } from '../stores/useAppStore';
 import api from '../services/api';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { sendToLLM, speechToText, textToSpeech } from '../services/speechService';
+import { getBrowserLocation } from '../services/navigationService';
 
 const navItems = [
   { id: 'profile', label: '个人资料', icon: 'user' },
@@ -185,7 +186,10 @@ export default function MainPage() {
     setUserText(text);
     setAssistantText('正在思考...');
     try {
-      const result = await sendToLLM(text);
+      // 尽力获取 GPS 坐标随请求带给后端(定位/导航工具用);
+      // 短超时+复用缓存,拿不到不影响正常对话
+      const coords = await getBrowserLocation({ timeoutMs: 3000, enableHighAccuracy: false });
+      const result = await sendToLLM(text, coords);
       setAssistantText(result.text || '好的');
       if (result.text) {
         textToSpeech(result.text).catch(() => {});

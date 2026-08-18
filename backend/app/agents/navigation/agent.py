@@ -37,8 +37,9 @@ class NavigationAgent:
 
         intent="navigation" 时：
           - params["destination"] 必填 → 规划路线
-          - 无 destination 但有 coords → 查询当前位置
-          - context["coords"] 可携带前端坐标 {"lat": 39.9, "lng": 116.4}
+          - 无 destination → 查询当前位置
+        intent="location" 时 → 查询当前位置
+        context["coords"] 可携带前端坐标 {"lat": 39.9, "lng": 116.4}
         """
         params = req.params or {}
         context = req.context or {}
@@ -75,16 +76,19 @@ class NavigationAgent:
                     lng=lng,
                 )
                 tts_text = f"您当前在{regeo.formatted_address}"
+                data = {
+                    "address": regeo.formatted_address,
+                    "city": regeo.city,
+                    "source": source,
+                    "tts_text": tts_text,
+                }
+                # IP 粗定位拿不到精确坐标时不返回伪坐标
+                if lat is not None and lng is not None:
+                    data["coords"] = {"lat": lat, "lng": lng}
                 return AgentResponse(
                     text=tts_text,
                     action=None,
-                    data={
-                        "coords": {"lat": lat, "lng": lng},
-                        "address": regeo.formatted_address,
-                        "city": regeo.city,
-                        "source": source,
-                        "tts_text": tts_text,
-                    },
+                    data=data,
                     needs_followup=False,
                 )
 

@@ -66,7 +66,8 @@ export interface Location {
 
 /** 当前位置（逆地理编码返回） */
 export interface LocationResult {
-  coords: { lat: number; lng: number };
+  /** IP 粗定位拿不到精确坐标时为 null（后端不返回伪坐标） */
+  coords: { lat: number; lng: number } | null;
   address: string;
   city: string;
   source: 'gps' | 'ip';
@@ -77,6 +78,7 @@ export interface LocationResult {
 export interface RouteStepItem {
   instruction: string;
   distance_m: number;
+  duration_s: number;
 }
 
 /** 路线总览 */
@@ -107,7 +109,9 @@ export interface RouteInfo {
 export interface WeatherInfo {
   temperature: number;
   condition: string;
-  humidity: number;
-  uv_index: number;
+  /** 湿度(%)，源数据缺失时为 null */
+  humidity: number | null;
+  /** 紫外线指数，查询失败时为 null */
+  uv_index: number | null;
   dressing_advice: string;
 }

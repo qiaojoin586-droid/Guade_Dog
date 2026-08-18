@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.auth.models import User
 from app.core.errors import (
     ERR_EXT_UNAVAILABLE,
     ERR_INTERNAL,
@@ -18,6 +19,7 @@ from app.core.errors import (
     build_error_response,
     build_success_response,
 )
+from app.dependencies import get_current_user
 from app.utils.image import MAX_UPLOAD_BYTES, ImageValidationError
 
 from .schemas import HealthAsk
@@ -36,19 +38,28 @@ async def ping():
 
 
 @router.post("/safety/medicine/recognize")
-async def recognize_medicine(image: UploadFile = File(...)):
+async def recognize_medicine(
+    image: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     """药品识别：上传药盒/药瓶照片，返回药品信息与播报文案。"""
     return await _handle_image_upload(image, medicine.recognize)
 
 
 @router.post("/safety/currency/recognize")
-async def recognize_currency(image: UploadFile = File(...)):
+async def recognize_currency(
+    image: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     """钞票识别：上传纸币照片，返回面额与播报文案。"""
     return await _handle_image_upload(image, currency.recognize)
 
 
 @router.post("/safety/health/ask")
-async def ask_health(req: HealthAsk):
+async def ask_health(
+    req: HealthAsk,
+    current_user: User = Depends(get_current_user),
+):
     """健康问答：返回回答与播报文案（带安全护栏）。"""
     try:
         result = await health.ask(req.question)

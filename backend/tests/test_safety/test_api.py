@@ -1,10 +1,13 @@
 """安全模块 API 测试（mock 服务层，不触网）。"""
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 
 from app.agents.safety.service import medicine
 from app.core import llm
+from app.dependencies import get_current_user
 
 
 @pytest.fixture
@@ -12,7 +15,23 @@ def client():
     from app.main import create_app
 
     app = create_app()
+    # 业务接口已挂 JWT 认证,测试用假用户覆盖依赖(不依赖 MySQL)
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1)
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_business_endpoint_requires_auth():
+    """未携带 token 访问业务接口 → 401/40101。"""
+    from app.main import create_app
+
+    app = create_app()  # 不覆盖依赖,验证认证生效
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as anon:
+        r = await anon.post("/api/v1/safety/health/ask", json={"question": "感冒了怎么办"})
+    assert r.status_code == 401
+    assert r.json()["code"] == 40101
 
 
 @pytest.mark.asyncio

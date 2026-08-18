@@ -28,7 +28,7 @@ async def get_me(
     current_user: User = Depends(get_current_user),
 ):
     """获取当前登录用户的完整信息。"""
-    request_id = request.headers.get("X-Request-ID", "")
+    request_id = getattr(request.state, "request_id", "")
     profile = await get_user_profile(current_user)
     return build_success_response(
         data=profile.model_dump(),
@@ -44,7 +44,7 @@ async def update_me(
     current_user: User = Depends(get_current_user),
 ):
     """更新当前登录用户的资料。"""
-    request_id = request.headers.get("X-Request-ID", "")
+    request_id = getattr(request.state, "request_id", "")
     try:
         profile = await update_user_profile(db, current_user, req)
         return build_success_response(

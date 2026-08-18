@@ -8,15 +8,17 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from app.agents.conversation.schemas import ChatRequest, TTSRequest
 from app.agents.conversation.service.asr import asr_from_pcm
 from app.agents.conversation.service.chat import chat
 from app.agents.conversation.service.tts import tts_synthesize
+from app.auth.models import User
 from app.config import get_settings
 from app.core.errors import build_success_response
+from app.dependencies import get_current_user
 from app.utils.audio import AudioConvertError, convert_audio_format
 from app.utils.xfyun import XfyunError
 
@@ -32,7 +34,10 @@ async def ping():
 
 
 @router.post("/speech/asr", summary="语音识别(讯飞 ASR)")
-async def speech_asr(audio: UploadFile = File(...)):
+async def speech_asr(
+    audio: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     """上传音频(webm/wav 等 ffmpeg 可解码格式),返回识别文本。
 
     - 音频 ≤ SPEECH_MAX_UPLOAD_BYTES(默认 5MB)
@@ -64,7 +69,10 @@ async def speech_asr(audio: UploadFile = File(...)):
 
 
 @router.post("/speech/tts", summary="语音合成(讯飞 TTS)")
-async def speech_tts(req: TTSRequest):
+async def speech_tts(
+    req: TTSRequest,
+    current_user: User = Depends(get_current_user),
+):
     """将文本合成为 mp3,直接返回音频流(前端 Audio 播放)。"""
     text = req.text.strip()
     if not text:
@@ -82,9 +90,17 @@ async def speech_tts(req: TTSRequest):
 
 
 @router.post("/conversation/chat", summary="语音对话(LLM + 工具调用)")
-async def conversation_chat(req: ChatRequest):
-    """识别文本进 LLM,判断意图并调用工具(当前工具为日志占位)。"""
-    resp = await chat(req.text, req.session_id)
+async def conversation_chat(
+    req: ChatRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """识别文本进 LLM,判断意图并调用工具。"""
+    resp = await chat(
+        req.text,
+        req.session_id,
+        user_id=str(current_user.id),
+        coords=req.coords.model_dump() if req.coords else None,
+    )
     return build_success_response(
         {
             "text": resp.text,

@@ -176,15 +176,15 @@ class AmapClient:
         for s in path.get("steps", []):
             steps.append(WalkingStep(
                 instruction=s.get("instruction", ""),
-                distance_m=int(s.get("distance", 0)),
-                duration_s=int(s.get("duration", 0)),
+                distance_m=_to_int(s.get("distance")),
+                duration_s=_to_int(s.get("duration")),
                 road=self._first_str(s.get("road")),
                 action=self._first_str(s.get("action")),
             ))
 
         return WalkingResult(
-            distance_m=int(path.get("distance", 0)),
-            duration_s=int(path.get("duration", 0)),
+            distance_m=_to_int(path.get("distance")),
+            duration_s=_to_int(path.get("duration")),
             origin_address=(data.get("route") or {}).get("origin", ""),
             dest_address=(data.get("route") or {}).get("destination", ""),
             steps=steps,
@@ -260,3 +260,17 @@ class AmapClient:
         if isinstance(value, list):
             return str(value[0]) if value else ""
         return str(value) if value else ""
+
+
+def _to_int(value, default: int = 0) -> int:
+    """容错转 int：高德字段可能为 null/非数字，直接 int() 会抛 TypeError。
+
+    null / 不可解析 → 返回 default（0），不让单字段脏数据击穿成 500。
+    """
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return default

@@ -7,19 +7,21 @@ from app.agents.safety.agent import SafetyAgent
 
 
 @pytest.mark.asyncio
-async def test_safety_handle_returns_valid_response():
-    """验证 handle() 返回合法 AgentResponse。"""
+async def test_safety_handle_sos():
+    """sos 意图 → 急救指引 + trigger_sos 动作 + 位置数据。"""
     agent = SafetyAgent()
     req = AgentRequest(
         session_id="test-session",
         user_id="test-user",
         intent="sos",
-        params={},
+        params={"location": "公园东门"},
         context={},
     )
     resp = await agent.handle(req)
     assert isinstance(resp, AgentResponse)
-    assert resp.text  # 非空
+    assert "120" in resp.text
+    assert resp.action == "trigger_sos"
+    assert resp.data["location"] == "公园东门"
     assert resp.needs_followup is False
 
 

@@ -26,6 +26,18 @@ MAX_WS_MESSAGE = 5_000_000
 _RECV_TIMEOUT = 15.0
 
 
+def _truncate_utf8(text: str, max_bytes: int = MAX_TEXT_BYTES) -> bytes:
+    """按字节截断 UTF-8 文本，且不切断多字节字符。
+
+    直接按字节切分可能把中文等多字节字符切坏，导致讯飞解码失败；
+    errors="ignore" 会丢弃截断处的残缺字节，保证结果始终是合法 UTF-8。
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return encoded
+    return encoded[:max_bytes].decode("utf-8", errors="ignore").encode("utf-8")
+
+
 async def tts_synthesize(text: str) -> bytes:
     """将文本合成为 mp3 音频字节。
 
@@ -44,7 +56,7 @@ async def tts_synthesize(text: str) -> bytes:
     encoded = text.encode("utf-8")
     if len(encoded) > MAX_TEXT_BYTES:
         logger.warning("TTS 文本超长(%d字节),已截断至 %d 字节", len(encoded), MAX_TEXT_BYTES)
-        encoded = encoded[:MAX_TEXT_BYTES]
+        encoded = _truncate_utf8(text)
 
     host, path = split_ws_url(settings.SPEECH_TTS_URL)
     auth, date = build_auth_header(host, path, api_key, api_secret)

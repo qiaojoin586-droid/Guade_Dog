@@ -54,21 +54,31 @@ def create_app() -> FastAPI:
     )
 
     # ── CORS ──
+    # 放行本机与局域网调试(如 vite --host 后手机/局域网设备访问 192.168.x.x:5173)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
             "http://localhost:5173",
             "http://127.0.0.1:5173",
         ],
+        allow_origin_regex=(
+            r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0"
+            r"|192\.168\.\d{1,3}\.\d{1,3}"
+            r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+            r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$"
+        ),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     # ── request_id 中间件 ──
+    # 优先沿用客户端传入的 X-Request-ID（便于全链路追踪），否则生成；
+    # 同时写入 request.state，供异常处理器与各路由的 _rid() 读取。
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
-        request_id = str(uuid.uuid4())
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
@@ -76,7 +86,7 @@ def create_app() -> FastAPI:
     # ── 统一异常处理 ──
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
-        request_id = request.headers.get("X-Request-ID", "")
+        request_id = getattr(request.state, "request_id", "")
         return JSONResponse(
             status_code=exc.status_code,
             content=build_error_response(
@@ -88,7 +98,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        request_id = request.headers.get("X-Request-ID", "")
+        request_id = getattr(request.state, "request_id", "")
         return JSONResponse(
             status_code=422,
             content=build_error_response(
@@ -101,7 +111,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
-        request_id = request.headers.get("X-Request-ID", "")
+        request_id = getattr(request.state, "request_id", "")
         logger.exception("未捕获异常: %s", exc)
         return JSONResponse(
             status_code=500,

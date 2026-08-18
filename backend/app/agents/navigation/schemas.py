@@ -18,7 +18,7 @@ class CoordsOut(BaseModel):
 
 class LocationOut(BaseModel):
     """当前位置查询响应。"""
-    coords: CoordsOut
+    coords: CoordsOut | None = None  # IP 粗定位拿不到精确坐标时为 None，不返回伪坐标
     address: str           # "北京市东城区东华门街道天安门"
     city: str              # "北京市"
     source: str            # "gps" | "ip"

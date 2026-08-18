@@ -73,3 +73,27 @@ async def test_handle_returns_valid_agent_response():
     resp = await agent.handle(req)
     assert isinstance(resp, AgentResponse)
     assert isinstance(resp.text, str)
+
+
+@pytest.mark.asyncio
+async def test_handle_location_intent_with_coords(monkeypatch):
+    """intent="location" + GPS 坐标 → 返回当前位置播报(mock 服务,不触网)。"""
+    from app.agents.navigation.service.amap import RegeoResult
+
+    async def fake_get_location(client, lat=None, lng=None):
+        return RegeoResult("北京市东城区测试路1号", "北京市", "北京市", "东城区", "110101"), "gps"
+
+    monkeypatch.setattr("app.agents.navigation.agent.get_current_location", fake_get_location)
+    agent = NavigationAgent()
+    req = AgentRequest(
+        session_id="t1",
+        user_id="u1",
+        intent="location",
+        params={},
+        context={"coords": {"lat": 39.90923, "lng": 116.397428}},
+    )
+    resp = await agent.handle(req)
+    assert isinstance(resp, AgentResponse)
+    assert "测试路1号" in resp.text
+    assert resp.data["coords"] == {"lat": 39.90923, "lng": 116.397428}
+    assert resp.data["source"] == "gps"

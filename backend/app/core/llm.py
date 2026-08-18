@@ -1,9 +1,9 @@
 """LLM 客户端封装。
 
 按配置 LLM_PROVIDER 选择供应商:
-  * spark(默认)   —— 讯飞星火 Ultra-32K,WebSocket wss://spark-api.xf-yun.com/v4.0/chat,
-                     凭据与 ASR/TTS 共用 XFYUN_* (同一讯飞应用的 APPID/APIKey/APISecret);
-  * dashscope     —— 阿里千问,OpenAI 兼容 HTTP 接口(备用)。
+  * dashscope(默认) —— 阿里千问,OpenAI 兼容 HTTP 接口;
+  * spark           —— 讯飞星火 Ultra-32K,WebSocket wss://spark-api.xf-yun.com/v4.0/chat,
+                       凭据与 ASR/TTS 共用 XFYUN_* (同一讯飞应用的 APPID/APIKey/APISecret)。
 
 json_mode: Spark 用系统提示词约束 JSON 输出(chat.py 做容错解析);
           DashScope 额外用 response_format=json_object。
@@ -25,7 +25,7 @@ from app.utils.xfyun import build_auth_header, split_ws_url
 logger = logging.getLogger(__name__)
 
 DASHSCOPE_COMPAT_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-DEFAULT_TIMEOUT = 15.0
+DEFAULT_TIMEOUT = 40.0
 _SPARK_MAX_WS_MESSAGE = 5_000_000
 _SPARK_RECV_TIMEOUT = 30.0
 

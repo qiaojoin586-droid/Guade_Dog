@@ -1,7 +1,7 @@
 """Safety Agent 实现。
 
 实现 Agent 契约: handle(req: AgentRequest) -> AgentResponse
-本期能力: 药品识别(medicine) / 健康问答(health) / 钞票识别(currency)
+本期能力: 紧急求救(sos) / 药品识别(medicine) / 健康问答(health) / 钞票识别(currency)
 图片场景由工具链路以 base64 传入 params["image_base64"]。
 """
 
@@ -23,16 +23,21 @@ logger = logging.getLogger(__name__)
 # 兜底文案（宁可说不确定/开发中，不说错）
 _FALLBACK = "安全助手功能开发中，请稍后再试"
 
+# SOS 急救指引（当前阶段记录事件+播报指引;家属通知 Phase 2 接入）
+_SOS_GUIDANCE = "已收到您的求救信号，请保持冷静。建议立即拨打120急救电话，并联系您的紧急联系人。"
+
 
 class SafetyAgent:
-    """安全 Agent —— 药品识别 / 健康问答 / 钞票识别。"""
+    """安全 Agent —— 紧急求救 / 药品识别 / 健康问答 / 钞票识别。"""
 
     async def handle(self, req: AgentRequest) -> AgentResponse:
-        """按意图分发三个能力。"""
+        """按意图分发能力(sos / health / medicine / currency)。"""
         intent = req.intent
         params = req.params or {}
 
         try:
+            if intent == "sos":
+                return self._sos(params, req.user_id)
             if intent == "health":
                 return await self._health(params)
             if intent in ("medicine", "currency"):
@@ -63,6 +68,20 @@ class SafetyAgent:
             )
 
         return AgentResponse(text=_FALLBACK, action=None, data=None, needs_followup=False)
+
+    def _sos(self, params: dict, user_id: str) -> AgentResponse:
+        """紧急求救: 记录事件并返回急救指引。
+
+        TODO(Phase 2): 接入家属通知(短信/推送/WebSocket),当前仅记录日志与结构化数据。
+        """
+        location = (params.get("location") or "").strip()
+        logger.warning("SOS 求救触发 user_id=%s location=%s", user_id, location or "未知")
+        return AgentResponse(
+            text=_SOS_GUIDANCE,
+            action="trigger_sos",
+            data={"location": location or None},
+            needs_followup=False,
+        )
 
     async def _health(self, params: dict) -> AgentResponse:
         """健康问答。"""

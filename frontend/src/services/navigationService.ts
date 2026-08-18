@@ -26,8 +26,13 @@ function unwrap<T>(body: ApiBody<T>): T {
 /**
  * 获取浏览器 GPS 坐标（包装为 Promise）。
  * 失败时返回 null，调用方负责降级提示。
+ *
+ * @param opts - timeoutMs 超时毫秒；enableHighAccuracy 是否高精度。
+ *   语音对话场景用短超时+低精度（maximumAge 60s 复用缓存，不重复触发定位）。
  */
-function getBrowserLocation(): Promise<{ lat: number; lng: number } | null> {
+function getBrowserLocation(
+  opts: { timeoutMs?: number; enableHighAccuracy?: boolean } = {},
+): Promise<{ lat: number; lng: number } | null> {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       resolve(null);
@@ -36,7 +41,11 @@ function getBrowserLocation(): Promise<{ lat: number; lng: number } | null> {
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+      {
+        enableHighAccuracy: opts.enableHighAccuracy ?? true,
+        timeout: opts.timeoutMs ?? 10000,
+        maximumAge: 60000,
+      },
     );
   });
 }

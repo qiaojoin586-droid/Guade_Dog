@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
+from app.auth.models import User
 from app.config import get_settings
 from app.core.errors import (
     ERR_EXT_UNAVAILABLE,
@@ -16,12 +17,15 @@ from app.core.errors import (
     build_error_response,
     build_success_response,
 )
+from app.dependencies import get_current_user
 
 from .schemas import (
     CoordsOut,
     LocationOut,
     RouteOut,
     RouteRequest,
+    RouteStepOut,
+    RouteSummaryOut,
 )
 from .service.amap import AmapClient, AmapError
 from .service.navigation import get_current_location, plan_route
@@ -54,6 +58,7 @@ async def get_location(
     request: Request,
     lat: float | None = Query(None, ge=-90, le=90),
     lng: float | None = Query(None, ge=-180, le=180),
+    current_user: User = Depends(get_current_user),
 ):
     """逆地理编码：经纬度 → 地址（三级降级链）。
 
@@ -79,7 +84,8 @@ async def get_location(
     tts_text = f"您当前在{regeo.formatted_address}"
     return build_success_response(
         LocationOut(
-            coords=CoordsOut(lat=lat or 0, lng=lng or 0),
+            # 只有 GPS 来源才有真实坐标;IP 粗定位拿不到坐标时返回 null,不伪造 (0,0)
+            coords=CoordsOut(lat=lat, lng=lng) if lat is not None and lng is not None else None,
             address=regeo.formatted_address,
             city=regeo.city or regeo.province,
             source=source,
@@ -95,7 +101,11 @@ async def get_location(
 
 
 @router.post("/navigation/route")
-async def route_plan(request: Request, body: RouteRequest):
+async def route_plan(
+    request: Request,
+    body: RouteRequest,
+    current_user: User = Depends(get_current_user),
+):
     """步行路线规划。
 
     POST /api/v1/navigation/route

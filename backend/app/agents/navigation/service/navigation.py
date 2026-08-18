@@ -132,7 +132,8 @@ async def plan_route(
         except AmapError:
             start_address = f"({origin_lat:.4f}, {origin_lng:.4f})"
     else:
-        raise ValueError("未获取到精确位置，请开启 GPS 定位再试")
+        # 步行规划需要精确起点坐标，IP 粗定位精度不足以规划步行路线
+        raise ValueError("未获取到精确位置，请开启 GPS 定位后重试")
 
     # 2. 调高德步行规划
     try:

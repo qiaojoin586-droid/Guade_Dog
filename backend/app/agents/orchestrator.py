@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 INTENT_ROUTING: dict[str, str] = {
     "chat": "conversation",
     "navigation": "navigation",
+    "location": "navigation",
     "sos": "safety",
     "weather": "perception",
     "ocr": "perception",
@@ -29,6 +30,8 @@ INTENT_ROUTING: dict[str, str] = {
     "reminder": "perception",
     "policy": "perception",
     "health": "safety",
+    "medicine": "safety",
+    "currency": "safety",
 }
 
 

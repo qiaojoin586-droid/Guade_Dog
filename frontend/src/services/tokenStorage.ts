@@ -26,11 +26,10 @@ export function setTokens(accessToken: string, refreshToken: string, persistent:
   const store = persistent ? localStorage : sessionStorage;
   store.setItem(ACCESS_KEY, accessToken);
   store.setItem(REFRESH_KEY, refreshToken);
-  // 刷新后生成的新 token 覆盖到原有存储位置
-  if (!persistent) {
-    localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
-  }
+  // 清理另一侧的残留，避免 getAccessToken 读到过期 token
+  const other = persistent ? sessionStorage : localStorage;
+  other.removeItem(ACCESS_KEY);
+  other.removeItem(REFRESH_KEY);
 }
 
 export function clearTokens(): void {

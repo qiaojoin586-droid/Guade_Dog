@@ -73,6 +73,9 @@ _YAML_MAP: dict[str, dict[str, str]] = {
         "heartbeat_interval": "WS_HEARTBEAT_INTERVAL",
         "reconnect_delay": "WS_RECONNECT_DELAY",
     },
+    "weather": {
+        "qweather_host": "QWEATHER_API_HOST",
+    },
 }
 
 # 仅允许通过 .env / 环境变量配置的敏感字段
@@ -173,6 +176,9 @@ class Settings:
     # ===== 高德地图 / 和风天气 =====
     AMAP_API_KEY: Optional[str] = None
     QWEATHER_API_KEY: Optional[str] = None
+    # 和风项目专属 API Host(控制台「项目管理」中查看,如 xxxx.qweatherapi.com)。
+    # 通用 devapi.qweather.com 会返回 403 Invalid Host,必须按项目配置。
+    QWEATHER_API_HOST: str = "devapi.qweather.com"
 
     # ===== JWT =====
     JWT_SECRET_KEY: str = "change-me"
@@ -208,14 +214,33 @@ class Settings:
 # ============================================================
 
 
-def _coerce(value: Any, default: Any) -> Any:
-    """环境变量是字符串，按默认值类型做转换。"""
+def _coerce(value: Any, default: Any, name: str = "") -> Any:
+    """环境变量是字符串，按默认值类型做转换。
+
+    非法数字不再抛异常导致启动崩溃，而是警告后回退默认值。
+    """
     if isinstance(default, bool):
         if isinstance(value, bool):
             return value
         return str(value).strip().lower() in ("1", "true", "yes", "on")
     if isinstance(default, int):
-        return int(value)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            warnings.warn(
+                f"配置项 {name or '(未知)'} 的值 {value!r} 无法解析为整数，使用默认值 {default}",
+                stacklevel=2,
+            )
+            return default
+    if isinstance(default, float):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            warnings.warn(
+                f"配置项 {name or '(未知)'} 的值 {value!r} 无法解析为浮点数，使用默认值 {default}",
+                stacklevel=2,
+            )
+            return default
     return value
 
 
@@ -254,7 +279,7 @@ def _build_settings() -> Settings:
         # 1) 环境变量（系统 > .env，load_dotenv 已按此顺序填充）
         env_value = os.getenv(name)
         if not _is_unset(env_value):
-            kwargs[name] = _coerce(env_value, default)
+            kwargs[name] = _coerce(env_value, default, name)
             continue
 
         # 2) config.yaml（敏感字段不会出现在 yaml 中）

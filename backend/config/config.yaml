@@ -64,3 +64,9 @@ jwt:
 websocket:
   heartbeat_interval: 30
   reconnect_delay: 3
+
+# ===== 和风天气 =====
+# API KEY 属敏感信息 → 在 .env 配置 QWEATHER_API_KEY
+weather:
+  # 项目专属 API Host(控制台「项目管理」中查看)。留空用 devapi.qweather.com(通用 Host 会 403)
+  qweather_host: devapi.qweather.com
