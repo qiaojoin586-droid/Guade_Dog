@@ -60,4 +60,16 @@ alembic/versions/__pycache__/
 backend/.mysql/
 运行分析/
 
+# AI运行日志
+.workbuddy/
 
+
+
+# ===== 调试与测试产物（不提交） =====
+frontend/_*.mjs
+frontend/_tokens.json
+frontend/shot*.png
+frontend/shots/
+backend/_*.py
+backend/_*.json
+backend/_*.wav
