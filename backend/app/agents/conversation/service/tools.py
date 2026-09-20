@@ -53,7 +53,8 @@ async def _log_only(params: dict, context: dict, spec: "ToolSpec") -> dict:
 async def _route_to_agent(params: dict, context: dict, intent: str) -> dict:
     """真实工具分发: 构造 AgentRequest 走 orchestrator 路由到对应 Agent。
 
-    返回 {text, data?},text 为可播报文案(chat.py 会拼进回复)。
+    返回 {text, data?, action?}: text 为可播报文案(chat.py 会拼进回复),
+    data/action 原样上送前端。
     """
     from app.agents import get_orchestrator
     from app.core.agent_protocol import AgentRequest
@@ -71,6 +72,8 @@ async def _route_to_agent(params: dict, context: dict, intent: str) -> dict:
     result: dict = {"text": resp.text}
     if resp.data:
         result["data"] = resp.data
+    if resp.action:
+        result["action"] = resp.action
     return result
 
 
@@ -102,6 +105,17 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         agent_module="navigation",
         handler=_make_agent_handler("location"),  # 已接真实定位服务
     ),
+    "navigation.distance": ToolSpec(
+        name="navigation.distance",
+        description="查询当前位置到某地的距离(远近)。用户询问'有多远''离我多远''距离多远'等远近问题时使用。只回答距离,不规划路线。",
+        params_schema={
+            "type": "object",
+            "properties": {"destination": {"type": "string", "description": "目的地名称或地址"}},
+            "required": ["destination"],
+        },
+        agent_module="navigation",
+        handler=_make_agent_handler("distance"),  # 已接真实距离查询服务
+    ),
     "safety.sos": ToolSpec(
         name="safety.sos",
         description="触发紧急求救(SOS)。用户表达危险、求助、救命、摔倒等紧急意图时使用。",
@@ -114,10 +128,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "perception.weather": ToolSpec(
         name="perception.weather",
-        description="查询天气情况。用户询问天气、温度、是否下雨等意图时使用。",
+        description="查询天气情况。用户询问天气、温度、是否下雨等意图时使用。用户没有说具体城市时,city 参数留空即可,工具会自动定位用户当前位置并查询当地天气,不要反问用户城市。",
         params_schema={
             "type": "object",
-            "properties": {"city": {"type": "string", "description": "城市名,可选,默认使用定位"}},
+            "properties": {"city": {"type": "string", "description": "城市名;用户未指定时留空,工具自动使用当前位置"}},
         },
         agent_module="perception",
         handler=_make_agent_handler("weather"),  # 已接真实天气服务

@@ -195,3 +195,70 @@ async def _polish_route_text(result: WalkingResult, top_n: int = 3) -> str:
         logger.warning("LLM 润色失败，使用原始 instruction 兜底播报", exc_info=True)
 
     return _build_tts_text(result, top_n=top_n)
+
+
+# ----------------------------------------------------------
+# 距离查询("有多远"意图,区别于路线规划)
+# ----------------------------------------------------------
+
+_EARTH_RADIUS_M = 6371008.8
+
+
+def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
+    """两点球面直线距离(米)。"""
+    lat1_r, lat2_r = math.radians(lat1), math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlng / 2) ** 2
+    )
+    return int(_EARTH_RADIUS_M * 2 * math.asin(math.sqrt(a)))
+
+
+def _format_distance(dist_m: int) -> str:
+    """距离口语化: <1km 用米,<100km 保留 1 位小数,更远取整公里。"""
+    if dist_m < 1000:
+        return f"{dist_m}米"
+    km = dist_m / 1000
+    return f"{km:.0f}公里" if km >= 100 else f"{km:.1f}公里"
+
+
+async def get_distance(
+    client: AmapClient,
+    destination: str,
+    origin_lat: float | None,
+    origin_lng: float | None,
+) -> dict:
+    """查询当前位置到目的地的直线距离(球面距离),返回结构化结果与播报文案。
+
+    注意: 这是「有多远」查询,不是步行路线规划——远距离目的地(如跨省)
+    也能直接回答,不会像 walking 一样报 TOO_FAR。
+
+    Raises:
+        ValueError: 目的地为空 / 起点无坐标 / 目的地解析不到 / 服务失败。
+    """
+    if not destination.strip():
+        raise ValueError("目的地不能为空")
+    if origin_lat is None or origin_lng is None:
+        raise ValueError("未获取到精确位置，请开启 GPS 定位后重试")
+
+    try:
+        geo_result = await client.geocode(destination)
+    except AmapError as exc:
+        raise ValueError("暂时无法计算距离，请稍后再试") from exc
+    if geo_result is None:
+        raise ValueError(f"没有找到「{destination}」，请换个说法")
+
+    dest_lat, dest_lng = geo_result.location
+    dist_m = _haversine_m(origin_lat, origin_lng, dest_lat, dest_lng)
+    dist_text = _format_distance(dist_m)
+
+    return {
+        "destination": destination,
+        "distance_m": dist_m,
+        "distance_text": dist_text,
+        "origin": {"lat": origin_lat, "lng": origin_lng},
+        "dest_coords": {"lat": dest_lat, "lng": dest_lng},
+        "tts_text": f"距离{destination}约{dist_text}，这是直线距离。",
+    }

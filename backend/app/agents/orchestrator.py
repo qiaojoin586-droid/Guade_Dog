@@ -23,6 +23,7 @@ INTENT_ROUTING: dict[str, str] = {
     "chat": "conversation",
     "navigation": "navigation",
     "location": "navigation",
+    "distance": "navigation",
     "sos": "safety",
     "weather": "perception",
     "ocr": "perception",

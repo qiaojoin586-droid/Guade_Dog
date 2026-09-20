@@ -60,7 +60,9 @@ _SYSTEM_TEMPLATE = """你是导盲AI智能体的语音交互助手。根据用�
    不要自行编造工具的执行结果——具体结果会由工具返回并追加播报。
    例: 设提醒时写"好的"即可,不要写"已为您设置…提醒";
    求救时写"正在为您求救",不要写急救指引;查天气时写"正在为您查询",不要编天气数据。
-3. 不要调用工具时,chat_reply 直接回答用户。"""
+3. 不要调用工具时,chat_reply 直接回答用户。
+4. 用户问天气/位置但没说具体城市时,把相应参数留空,工具会自动定位,
+   不要反问用户城市,也不要跳过工具自己猜测位置。"""
 
 
 def _build_tools_prompt() -> str:
@@ -134,6 +136,9 @@ async def chat(
             if result and isinstance(result, dict) and result.get("data"):
                 data = data or {}
                 data["tool_data"] = result["data"]
+            if result and isinstance(result, dict) and result.get("action"):
+                data = data or {}
+                data["action"] = result["action"]
             return AgentResponse(
                 text=reply,
                 action=None,

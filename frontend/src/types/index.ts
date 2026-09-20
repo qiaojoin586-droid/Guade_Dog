@@ -54,6 +54,10 @@ export interface AsrResult {
 export interface ChatResult {
   text: string;
   tool_called: string | null;
+  /** 工具返回的结构化结果(定位精度、天气数据等) */
+  tool_data?: Record<string, unknown> | null;
+  /** 工具动作标识,如 "trigger_sos" */
+  action?: string | null;
 }
 
 // ===== 导航 =====

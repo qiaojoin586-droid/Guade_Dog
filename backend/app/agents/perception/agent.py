@@ -1,13 +1,16 @@
 """Perception Agent 实现。
 
 实现 Agent 契约: handle(req: AgentRequest) -> AgentResponse
-本期能力: 天气查询(weather) / 语音提醒(reminder)
+本期能力: 天气查询(weather,未指定城市时自动定位) / 语音提醒(reminder)
 """
 
 from __future__ import annotations
 
 import logging
 
+from app.agents.navigation.service.amap import AmapClient, AmapError
+from app.agents.navigation.service.navigation import get_current_location
+from app.config import get_settings
 from app.core.agent_protocol import AgentRequest, AgentResponse
 from app.core.errors import ERR_EXT_UNAVAILABLE
 
@@ -26,7 +29,7 @@ class PerceptionAgent:
     async def handle(self, req: AgentRequest) -> AgentResponse:
         """按意图分发已实现的能力。"""
         if req.intent == "weather":
-            return await self._weather(req.params or {})
+            return await self._weather(req.params or {}, req.context or {})
         if req.intent == "reminder":
             return await self._reminder(req.params or {}, req.user_id)
 
@@ -37,13 +40,33 @@ class PerceptionAgent:
             needs_followup=False,
         )
 
-    async def _weather(self, params: dict) -> AgentResponse:
-        """天气查询。city 缺省时追问（和风无 IP 自动定位，不瞎猜城市）。"""
+    async def _weather(self, params: dict, context: dict) -> AgentResponse:
+        """天气查询。
+
+        用户未指定城市时,用前端 GPS 坐标自动定位当地城市查天气;
+        没有坐标或定位失败 → 追问城市。
+        刻意不用 IP 粗定位:IP 只有城市级精度且常跨市错误,报错城市
+        比让用户再问一次更糟(宁可说不确定,不可说错)。
+        """
         city = (params.get("city") or "").strip()
+        located = False  # 是否走了自动定位
+        if not city:
+            coords = context.get("coords") or {}
+            lat, lng = coords.get("lat"), coords.get("lng")
+            # 设计约定：没有前端 GPS 坐标时直接追问城市，不用 IP 猜城市
+            if lat is not None and lng is not None:
+                try:
+                    client = AmapClient(key=get_settings().AMAP_API_KEY or "")
+                    regeo, _ = await get_current_location(client, lat=lat, lng=lng)
+                    city = (regeo.city or regeo.province or "").strip()
+                    located = True
+                except AmapError as exc:
+                    logger.warning("天气自动定位失败,回退追问: %s", exc)
+
         try:
             result = await weather.get_now_weather(city)
         except ValueError as exc:
-            # 城市为空 → 追问；不在内置城市表 → 播报提示并追问
+            # 城市为空(无坐标/定位失败) → 追问;城市解析不到 → 播报提示并追问
             return AgentResponse(
                 text=str(exc) if city else "请告诉我您要查询的城市",
                 action=None,
@@ -58,6 +81,9 @@ class PerceptionAgent:
                 data={"code": ERR_EXT_UNAVAILABLE},
                 needs_followup=False,
             )
+        if located:
+            # 自动定位所得的城市可能与用户实际位置有偏差,播报如实说明依据
+            result["tts_text"] = f"根据您的当前位置，{result['tts_text']}"
         return AgentResponse(
             text=result["tts_text"],
             action=None,
