@@ -137,6 +137,11 @@ def create_app() -> FastAPI:
 
     app.include_router(users_router)
 
+    # ── 挂载常用地址路由 ──
+    from app.addresses.api import router as addresses_router
+
+    app.include_router(addresses_router)
+
     # ── 挂载 4 个 Agent 模块路由（每模块一行，集成点） ──
     from app.agents.conversation.api import router as conversation_router
     from app.agents.navigation.api import router as navigation_router

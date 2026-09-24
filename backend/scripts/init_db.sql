@@ -225,6 +225,24 @@ CREATE TABLE IF NOT EXISTS weather_cache (
   UNIQUE KEY uq_weather_key (location_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='天气缓存表';
 
+-- ---------- 3.12 user_addresses (常用地址簿) ----------
+-- 用户对地址增删改查; 语音“我要去公司”按 label 别名匹配
+CREATE TABLE IF NOT EXISTS user_addresses (
+  id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_id    BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+  label      VARCHAR(20)     NOT NULL COMMENT '别名: 家/公司/健身房',
+  address    VARCHAR(255)    NOT NULL COMMENT '详细地址',
+  lat        DOUBLE          NULL COMMENT '纬度',
+  lng        DOUBLE          NULL COMMENT '经度',
+  is_default TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '是否默认地址',
+  created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_user_addresses_label (user_id, label),
+  KEY ix_user_addresses_user (user_id),
+  CONSTRAINT fk_addresses_user FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='常用地址表';
+
 -- ============================================================
 -- 重置数据库(可选, 取消注释后执行)
 --   DROP TABLE IF EXISTS weather_cache, conversation_logs, ocr_records,
