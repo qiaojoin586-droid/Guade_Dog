@@ -58,9 +58,58 @@ class RegisterResponse(BaseModel):
 # ===== 登录 =====
 
 class LoginRequest(BaseModel):
-    """登录请求体。支持手机号或邮箱登录。"""
+    """登录请求体（密码登录，已不在前端使用，保留用于兼容/管理端）。"""
     account: str = Field(..., min_length=1, description="手机号或邮箱")
     password: str = Field(..., min_length=1, max_length=128, description="密码")
+
+
+# ===== 手机号验证码登录（盲人用户主入口） =====
+
+class SendCodeRequest(BaseModel):
+    """获取登录验证码请求体。"""
+
+    phone: str = Field(..., description="手机号")
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        """校验手机号格式（11 位中国大陆手机号）。"""
+        v = v.strip()
+        if not _PHONE_RE.match(v):
+            raise ValueError("手机号格式不正确")
+        return v
+
+
+class SendCodeResponse(BaseModel):
+    """获取验证码响应（不含验证码本身，验证码只打印在服务端控制台）。"""
+
+    expires_in: int = Field(..., description="验证码有效期（秒）")
+    resend_after: int = Field(..., description="可重发等待时间（秒）")
+
+
+class CodeLoginRequest(BaseModel):
+    """验证码登录请求体。"""
+
+    phone: str = Field(..., description="手机号")
+    code: str = Field(..., min_length=4, max_length=8, description="短信验证码")
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        """校验手机号格式。"""
+        v = v.strip()
+        if not _PHONE_RE.match(v):
+            raise ValueError("手机号格式不正确")
+        return v
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        """校验验证码为纯数字。"""
+        v = v.strip()
+        if not v.isdigit():
+            raise ValueError("验证码应为数字")
+        return v
 
 
 class LoginResponse(BaseModel):

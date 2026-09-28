@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
 from app.auth.schemas import (
+    CodeLoginRequest,
     LoginRequest,
     LoginResponse,
     RefreshRequest,
@@ -21,6 +22,7 @@ from app.auth.schemas import (
     RegisterRequest,
     RegisterResponse,
 )
+from app.auth.verification import verify_code
 from app.config import get_settings
 from app.core.security import create_access_token, create_refresh_token
 
@@ -109,6 +111,10 @@ async def login_user(db: AsyncSession, req: LoginRequest) -> LoginResponse:
     if user.status != "active":
         raise ValueError("账号已被禁用")
 
+    # 验证码登录创建的账号没有可用密码，禁止走密码登录
+    if not is_password_login_allowed(user):
+        raise ValueError("该账号请使用手机号验证码登录")
+
     if not verify_password(req.password, user.password_hash):
         raise ValueError("账号或密码错误")
 
@@ -126,6 +132,59 @@ async def login_user(db: AsyncSession, req: LoginRequest) -> LoginResponse:
         email=user.email,
         avatar_url=user.avatar_url,
     )
+
+
+# 验证码登录自动创建的账号没有真实密码，用此前缀标记，密码登录直接拒绝
+_CODE_LOGIN_PASSWORD_HASH = "!code-login"
+
+
+def is_password_login_allowed(user: User) -> bool:
+    """账号是否允许密码登录（验证码自动建号的账号不允许）。"""
+    return bool(user.password_hash) and not user.password_hash.startswith("!")
+
+
+def _build_login_response(user: User) -> LoginResponse:
+    """按用户信息签发 JWT 双 Token 并组装登录响应。"""
+    token_data = {"user_id": user.id, "role": user.role}
+    return LoginResponse(
+        access_token=create_access_token(token_data),
+        refresh_token=create_refresh_token(token_data),
+        user_id=user.id,
+        name=user.name,
+        role=user.role,
+        phone=user.phone,
+        email=user.email,
+        avatar_url=user.avatar_url,
+    )
+
+
+async def login_with_code(db: AsyncSession, req: CodeLoginRequest) -> LoginResponse:
+    """手机号 + 验证码登录；手机号未注册时自动建号（免密码）。
+
+    Raises:
+        ValueError: 验证码错误/过期，或账号被禁用
+    """
+    verify_code(req.phone, req.code)
+
+    user = await find_user_by_phone(db, req.phone)
+    if user is None:
+        user = User(
+            phone=req.phone,
+            email=None,
+            password_hash=_CODE_LOGIN_PASSWORD_HASH,
+            name=f"用户{req.phone[-4:]}",
+            role="blind",
+            status="active",
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        logger.info("验证码登录自动建号 user_id=%s", user.id)
+
+    if user.status != "active":
+        raise ValueError("账号已被禁用")
+
+    return _build_login_response(user)
 
 
 async def refresh_user_token(db: AsyncSession, req: RefreshRequest) -> RefreshResponse:
