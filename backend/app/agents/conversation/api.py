@@ -10,15 +10,17 @@ import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.conversation.schemas import ChatRequest, TTSRequest
+from app.agents.conversation.schemas import ChatRequest, CommandRequest, TTSRequest
 from app.agents.conversation.service.asr import asr_from_pcm
 from app.agents.conversation.service.chat import chat
+from app.agents.conversation.service.commands import handle as handle_command
 from app.agents.conversation.service.tts import tts_synthesize
 from app.auth.models import User
 from app.config import get_settings
 from app.core.errors import build_success_response
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_db_session
 from app.utils.audio import AudioConvertError, convert_audio_format
 from app.utils.xfyun import XfyunError
 
@@ -101,9 +103,55 @@ async def conversation_chat(
         user_id=str(current_user.id),
         coords=req.coords.model_dump() if req.coords else None,
     )
+    resp_data = resp.data or {}
+    payload: dict = {
+        "text": resp.text,
+        "tool_called": resp_data.get("tool_called"),
+    }
+    # 工具结构化结果与动作标识一并上送前端(定位精度/SOS 触发等)
+    if resp_data.get("tool_data"):
+        payload["tool_data"] = resp_data["tool_data"]
+    if resp_data.get("action"):
+        payload["action"] = resp_data["action"]
+    return build_success_response(payload)
+
+
+@router.post("/conversation/command", summary="语音指令(演示版规则大脑)")
+async def conversation_command(
+    req: CommandRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """语音指令总入口：导航、常用地址、拍照识别、紧急求救。
+
+    演示阶段回复全部写死，只有地址簿是真实读写 MySQL；
+    action 字段告诉前端要打开哪个画面（摄像头模拟 / 求救确认）。
+    """
+    result = await handle_command(req.text, current_user.id, db, req.trigger)
+
+    # 规则未命中 → 交给 LLM + 工具链（天气/定位/距离/提醒/闲聊）
+    if result.action == "fallback":
+        llm_resp = await chat(
+            req.text,
+            req.session_id,
+            user_id=str(current_user.id),
+            coords=req.coords.model_dump() if req.coords else None,
+        )
+        llm_data = llm_resp.data or {}
+        return build_success_response(
+            {
+                "text": llm_resp.text,
+                "action": "chat",
+                "tool_called": llm_data.get("tool_called"),
+                "tool_data": llm_data.get("tool_data") or None,
+            }
+        )
+
     return build_success_response(
         {
-            "text": resp.text,
-            "tool_called": (resp.data or {}).get("tool_called"),
+            "text": result.text,
+            "action": result.action,
+            "tool_called": result.tool,
+            "tool_data": result.data or None,
         }
     )

@@ -6,9 +6,11 @@ import MainPage from './pages/MainPage';
 import NavigationPage from './pages/NavigationPage';
 import SafetyPage from './pages/SafetyPage';
 import SettingsPage from './pages/SettingsPage';
+import AddressPage from './pages/AddressPage';
 import FamilyDashboard from './pages/family/Dashboard';
 import LoginPage from './pages/auth/LoginPage';
-import RegisterPage from './pages/auth/RegisterPage';
+import VoiceDock from './components/VoiceDock';
+import { VoiceControlProvider } from './voice/VoiceControlProvider';
 
 // 认证守卫：未登录时重定向到登录页
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -42,7 +44,8 @@ function App() {
   }
 
   return (
-    <Routes>
+    <VoiceControlProvider>
+      <Routes>
       {/* 根路由：根据登录状态重定向 */}
       <Route
         path="/"
@@ -81,6 +84,14 @@ function App() {
         }
       />
       <Route
+        path="/app/addresses"
+        element={
+          <AuthGuard>
+            <AddressPage />
+          </AuthGuard>
+        }
+      />
+      <Route
         path="/app/settings"
         element={
           <AuthGuard>
@@ -99,10 +110,14 @@ function App() {
         }
       />
 
-      {/* 认证路由 */}
+      {/* 认证路由：手机号验证码登录，未注册手机号自动建号，注册页不再使用 */}
       <Route path="/auth/login" element={<LoginPage />} />
-      <Route path="/auth/register" element={<RegisterPage />} />
-    </Routes>
+      <Route path="/auth/register" element={<Navigate to="/auth/login" replace />} />
+      </Routes>
+
+      {/* 登录后才出现的常驻语音控制条（各页面自行预留底部空间） */}
+      {isAuthenticated && <VoiceDock />}
+    </VoiceControlProvider>
   );
 }
 

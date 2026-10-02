@@ -1,21 +1,18 @@
 /**
- * 语音交互 Hook（双轨降级骨架）。
+ * 语音交互 Hook（Web Speech API）。
  *
- * 探测 SpeechRecognition 可用性：
- * - 可用：使用浏览器 Web Speech API
- * - 不可用：降级到占位实现
- *
- * 参见前端文档 §7.2。
+ * 单句识别 + 全局语音状态机：idle → listening → idle。
+ * 常驻语音控制请使用 VoiceControlProvider。
  */
 
 import { useCallback, useEffect } from 'react';
+import { getRecognitionCtor } from '../voice/recognition';
 import { useVoiceStore, type VoiceStatus } from '../stores/useVoiceStore';
+import { useSpeechInput } from './useSpeechInput';
 
-/**
- * 检测当前浏览器是否支持语音识别。
- */
+/** 当前浏览器是否支持语音识别。 */
 export function isSpeechSupported(): boolean {
-  return typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+  return getRecognitionCtor() !== null;
 }
 
 interface UseSpeechReturn {
@@ -27,34 +24,33 @@ interface UseSpeechReturn {
 }
 
 export function useSpeech(): UseSpeechReturn {
-  const { status, transcript, isSupported, setStatus, setTranscript: _setTranscript, setPermission } = useVoiceStore();
+  const { status, transcript, setStatus, setTranscript, setPermission } = useVoiceStore();
 
   useEffect(() => {
     const supported = isSpeechSupported();
     useVoiceStore.setState({ isSupported: supported });
-    if (!supported) {
-      setPermission('denied');
-    }
+    setPermission(supported ? 'granted' : 'denied');
   }, [setPermission]);
 
+  const input = useSpeechInput((text) => {
+    setTranscript(text);
+    setStatus('idle');
+  });
+
   const startListening = useCallback(() => {
-    if (!isSupported) {
-      setStatus('error');
-      return;
-    }
-    // TODO: 实现 Web Speech API 调用逻辑
     setStatus('listening');
-  }, [isSupported, setStatus]);
+    input.start();
+  }, [input, setStatus]);
 
   const stopListening = useCallback(() => {
-    // TODO: 实现停止录音逻辑
+    input.stop();
     setStatus('idle');
-  }, [setStatus]);
+  }, [input, setStatus]);
 
   return {
     status,
     transcript,
-    isSupported,
+    isSupported: isSpeechSupported(),
     startListening,
     stopListening,
   };
