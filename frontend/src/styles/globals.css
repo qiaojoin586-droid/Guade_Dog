@@ -8,6 +8,12 @@
   --color-text: #1f2937;
 }
 
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -17,6 +23,15 @@ body {
   background-color: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* 移动端：禁止横向滚动，字号不随系统缩放被放大 */
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* 图片/视频不撑破容器 */
+img,
+video {
+  max-width: 100%;
 }
 
 /* 无障碍基础样式 */

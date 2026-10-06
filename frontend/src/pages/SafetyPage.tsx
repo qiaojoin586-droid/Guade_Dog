@@ -120,9 +120,9 @@ export default function SafetyPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">安全助手</h1>
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 pb-40 sm:pb-44">
+      <header className="mb-4 sm:mb-6">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">安全助手</h1>
         <p className="text-sm text-gray-500 mt-1">药品识别 · 健康问答 · 钞票识别（识别结果仅供参考）</p>
       </header>
 

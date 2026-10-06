@@ -1,69 +1,240 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAppStore } from '../../stores/useAppStore';
+/**
+ * 登录页：手机号 + 验证码（未注册手机号自动建号）。
+ *
+ * 无障碍设计：
+ * - 手机号、验证码都可以直接用嘴说，不需要看屏幕；
+ * - 错误和关键提示都会语音播报；
+ * - 验证码不发送真实短信，只打印在后端控制台（演示阶段）。
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { useSpeechInput } from '../../hooks/useSpeechInput';
 import api from '../../services/api';
 import { setTokens } from '../../services/tokenStorage';
+import { speak } from '../../services/tts';
+import { useAppStore } from '../../stores/useAppStore';
+import { extractDigits } from '../../utils/voiceText';
+import { useVoiceControl } from '../../voice/VoiceControlProvider';
+
+const PHONE_RE = /^1[3-9]\d{9}$/;
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const setUser = useAppStore((s) => s.setUser);
-  const [account, setAccount] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const { startListening } = useVoiceControl();
+
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [countdown, setCountdown] = useState(0);
+  const [sending, setSending] = useState(false);
+  const [logging, setLogging] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  const countdownRef = useRef<number | null>(null);
+  const spokenRef = useRef(false);
+  const submittingRef = useRef(false);
 
-    try {
-      const { data } = await api.post('/auth/login', { account, password });
-      if (data.code === 200) {
-        const { access_token, refresh_token, user_id, name, role, phone, email, avatar_url } = data.data;
-        // 勾选「记住我」存 localStorage，否则存 sessionStorage（关浏览器即退出）
-        setTokens(access_token, refresh_token, rememberMe);
-        setUser({
-          id: String(user_id),
-          name,
-          role: role as 'blind' | 'family' | 'admin',
-          phone: phone || undefined,
-          email: email || undefined,
-          avatar_url: avatar_url || undefined,
-        });
-        navigate('/app');
-      } else {
-        setError(data.message || '登录失败');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || '网络错误，请稍后重试');
-    } finally {
-      setLoading(false);
+  // ── 页面进入时先说一遍怎么用（浏览器可能拦自动播放，失败静默） ──
+  useEffect(() => {
+    if (!spokenRef.current) {
+      spokenRef.current = true;
+      void speak('请说出您的手机号，我会自动发送验证码，然后请说出六位验证码。');
     }
+    return () => {
+      if (countdownRef.current !== null) window.clearInterval(countdownRef.current);
+    };
+  }, []);
+
+  const startCountdown = useCallback((seconds: number) => {
+    setCountdown(seconds);
+    if (countdownRef.current !== null) window.clearInterval(countdownRef.current);
+    countdownRef.current = window.setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          if (countdownRef.current !== null) window.clearInterval(countdownRef.current);
+          countdownRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  /** 获取验证码（语音说出手机号后自动调用）。 */
+  const requestCode = useCallback(
+    async (targetPhone: string): Promise<boolean> => {
+      setError('');
+      setNotice('');
+      if (!PHONE_RE.test(targetPhone)) {
+        const message = '请先输入或说出十一位手机号。';
+        setError(message);
+        void speak(message);
+        return false;
+      }
+
+      setSending(true);
+      try {
+        const { data } = await api.post('/auth/sms/send', { phone: targetPhone });
+        if (data.code === 200) {
+          startCountdown(data.data?.resend_after ?? 60);
+          const message = '验证码已生成。请查看后端控制台里的六位数字，然后直接说出来。';
+          setNotice(message);
+          void speak(message);
+          return true;
+        }
+        const message = data.message || '获取验证码失败';
+        setError(message);
+        void speak(message);
+        return false;
+      } catch (err: unknown) {
+        const message =
+          (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          '网络异常，请稍后重试';
+        setError(message);
+        void speak(message);
+        return false;
+      } finally {
+        setSending(false);
+      }
+    },
+    [startCountdown],
+  );
+
+  /** 登录（语音说出验证码后自动调用）。 */
+  const doLogin = useCallback(
+    async (targetPhone: string, targetCode: string) => {
+      if (submittingRef.current) return;
+      setError('');
+      setNotice('');
+
+      if (!PHONE_RE.test(targetPhone)) {
+        const message = '手机号格式不正确，请重新输入或说出手机号。';
+        setError(message);
+        void speak(message);
+        return;
+      }
+      if (targetCode.length < 4) {
+        const message = '请先说出手里的验证码。';
+        setError(message);
+        void speak(message);
+        return;
+      }
+
+      submittingRef.current = true;
+      setLogging(true);
+      try {
+        const { data } = await api.post('/auth/login/code', {
+          phone: targetPhone,
+          code: targetCode,
+        });
+        if (data.code === 200) {
+          const {
+            access_token,
+            refresh_token,
+            user_id,
+            name,
+            role,
+            phone: userPhone,
+            email,
+            avatar_url,
+          } = data.data;
+          setTokens(access_token, refresh_token, true);
+          setUser({
+            id: String(user_id),
+            name,
+            role: role as 'blind' | 'family' | 'admin',
+            phone: userPhone || undefined,
+            email: email || undefined,
+            avatar_url: avatar_url || undefined,
+          });
+          navigate('/app');
+          // 登录后直接进入聆听状态，盲人用户不用再找麦克风按钮
+          void speak('登录成功。请说出您的需求。').then(() => startListening());
+        } else {
+          const message = data.message || '登录失败';
+          setError(message);
+          void speak(message);
+        }
+      } catch (err: unknown) {
+        const message =
+          (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          '网络错误，请稍后重试';
+        setError(message);
+        void speak(message);
+      } finally {
+        submittingRef.current = false;
+        setLogging(false);
+      }
+    },
+    [navigate, setUser, startListening],
+  );
+
+  // ── 语音输入手机号：识别到 11 位后自动发验证码 ──
+  const phoneSpeech = useSpeechInput((text) => {
+    const digits = extractDigits(text);
+    if (digits.length === 11 && PHONE_RE.test(digits)) {
+      setPhone(digits);
+      setError('');
+      void requestCode(digits);
+      return;
+    }
+    const message =
+      digits.length > 0
+        ? `我只听到 ${digits.length} 位数字，请再说一次完整的手机号。`
+        : '我没有听清手机号，请再说一次。';
+    setError(message);
+    void speak(message);
+  });
+
+  // ── 语音输入验证码：识别到后自动登录 ──
+  const codeSpeech = useSpeechInput((text) => {
+    const digits = extractDigits(text);
+    if (digits.length >= 4) {
+      const value = digits.slice(0, 6);
+      setCode(value);
+      setError('');
+      void doLogin(phone, value);
+      return;
+    }
+    const message = '我没有听清验证码，请再说一次六位数字。';
+    setError(message);
+    void speak(message);
+  });
+
+  const handleSendCode = () => {
+    void requestCode(phone);
+  };
+
+  const handleLogin = (event: React.FormEvent) => {
+    event.preventDefault();
+    void doLogin(phone, code.trim());
   };
 
   return (
     <div className="min-h-screen flex">
-      {/* Left Panel - Branding */}
+      {/* 左侧品牌区 */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-[#0a1628] via-[#0d2847] to-[#1a4a8a] flex-col justify-center px-16 text-white relative overflow-hidden">
-        {/* Decorative circles */}
         <div className="absolute top-20 left-20 w-72 h-72 bg-blue-500/10 rounded-full blur-3xl" />
         <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-400/8 rounded-full blur-3xl" />
 
         <div className="relative z-10">
-          {/* Logo */}
           <div className="flex items-center gap-3 mb-16">
             <div className="w-12 h-12 bg-white/15 backdrop-blur rounded-full flex items-center justify-center">
               <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                />
               </svg>
             </div>
             <span className="text-2xl font-bold tracking-wide">导盲AI</span>
           </div>
 
-          {/* Tagline */}
           <h1 className="text-5xl font-bold leading-tight mb-4">
             智能导盲
             <br />
@@ -71,153 +242,158 @@ export default function LoginPage() {
           </h1>
           <p className="text-lg text-blue-200/80 mb-20">为视障用户打造的智能语音助手</p>
 
-          {/* Features */}
-          <div className="space-y-8">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-white/10 backdrop-blur rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
-              </div>
-              <span className="text-lg">智能语音交互，自然对话</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-white/10 backdrop-blur rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </div>
-              <span className="text-lg">实时导航避障，安全出行</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-white/10 backdrop-blur rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-              </div>
-              <span className="text-lg">一键紧急求救，守护安全</span>
-            </div>
+          <div className="space-y-8 text-lg">
+            <p>· 说手机号就能登录，不用记密码</p>
+            <p>· 说“我要去公司”，自动规划路线</p>
+            <p>· 说“帮我识别这个药品”，语音播报结果</p>
+            <p>· 遇到危险，手机剧烈抖动即可求救</p>
           </div>
         </div>
       </div>
 
-      {/* Right Panel - Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center px-8 py-12 bg-white">
-        <div className="w-full max-w-md">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">欢迎回来</h2>
-          <p className="text-gray-400 mb-10">请登录您的账号以继续</p>
+      {/* 右侧登录表单 */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center px-4 sm:px-6 py-8 sm:py-12 bg-white">
+        <div className="w-full max-w-lg">
+          <h2 className="text-2xl sm:text-4xl font-bold text-gray-900 mb-2">手机号登录</h2>
+          <p className="text-base sm:text-xl text-gray-500 mb-6 sm:mb-10">
+            输入手机号获取验证码，首次登录自动注册
+          </p>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm" role="alert">
+            <div
+              className="mb-6 p-4 bg-red-50 border-2 border-red-300 rounded-2xl text-red-700 text-lg"
+              role="alert"
+              aria-live="assertive"
+            >
               {error}
             </div>
           )}
-
-          <form onSubmit={handleLogin} className="space-y-6">
-            {/* Account */}
-            <div>
-              <label htmlFor="account" className="block text-sm font-semibold text-gray-700 mb-2">
-                邮箱地址
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <input
-                  id="account"
-                  type="text"
-                  value={account}
-                  onChange={(e) => setAccount(e.target.value)}
-                  placeholder="请输入邮箱地址"
-                  className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  required
-                  autoFocus
-                />
-              </div>
+          {notice && (
+            <div
+              className="mb-6 p-4 bg-green-50 border-2 border-green-300 rounded-2xl text-green-800 text-lg"
+              role="status"
+              aria-live="polite"
+            >
+              {notice}
             </div>
+          )}
 
-            {/* Password */}
+          <form onSubmit={handleLogin} className="space-y-7">
+            {/* 手机号 */}
             <div>
-              <label htmlFor="password" className="block text-sm font-semibold text-gray-700 mb-2">
-                密码
+              <label htmlFor="phone" className="block text-lg sm:text-xl font-semibold text-gray-800 mb-2 sm:mb-3">
+                手机号
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                </div>
+              <div className="flex gap-2 sm:gap-3">
                 <input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="请输入密码"
-                  className="w-full pl-12 pr-12 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  required
+                  id="phone"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(extractDigits(e.target.value).slice(0, 11))}
+                  placeholder="请输入或说出 11 位手机号"
+                  className="flex-1 min-w-0 px-3 sm:px-5 py-4 sm:py-5 bg-gray-50 border-2 border-gray-300 rounded-2xl
+                             text-lg sm:text-2xl tracking-wider
+                             focus:outline-none focus:border-[#1a4a8a] focus:ring-4 focus:ring-blue-200"
+                  aria-describedby="phone-hint"
+                  autoFocus
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
-                  aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                  onClick={phoneSpeech.listening ? phoneSpeech.stop : phoneSpeech.start}
+                  className={`w-16 sm:w-20 flex-shrink-0 rounded-2xl text-white flex flex-col items-center justify-center
+                    focus:outline-none focus:ring-4 focus:ring-blue-300 transition-colors
+                    ${phoneSpeech.listening ? 'bg-red-500 animate-pulse' : 'bg-[#1a4a8a] hover:bg-[#153d75]'}`}
+                  aria-label={phoneSpeech.listening ? '停止语音输入手机号' : '语音输入手机号'}
+                  aria-pressed={phoneSpeech.listening}
                 >
-                  {showPassword ? (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  )}
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                    />
+                  </svg>
+                  <span className="text-xs mt-1">说号码</span>
                 </button>
               </div>
+              <p id="phone-hint" className="mt-2 text-base text-gray-500">
+                点击右侧麦克风，直接说出一串数字即可
+              </p>
             </div>
 
-            {/* Remember + Forgot */}
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-600">记住我</span>
+            {/* 验证码 */}
+            <div>
+              <label htmlFor="code" className="block text-lg sm:text-xl font-semibold text-gray-800 mb-2 sm:mb-3">
+                验证码
               </label>
-              <button type="button" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                忘记密码？
+              <div className="flex gap-2 sm:gap-3">
+                <input
+                  id="code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={code}
+                  onChange={(e) => setCode(extractDigits(e.target.value).slice(0, 6))}
+                  placeholder="6 位数字"
+                  className="flex-1 min-w-0 px-3 sm:px-5 py-4 sm:py-5 bg-gray-50 border-2 border-gray-300 rounded-2xl
+                             text-lg sm:text-2xl tracking-[0.3em]
+                             focus:outline-none focus:border-[#1a4a8a] focus:ring-4 focus:ring-blue-200"
+                />
+                <button
+                  type="button"
+                  onClick={codeSpeech.listening ? codeSpeech.stop : codeSpeech.start}
+                  className={`w-16 sm:w-20 flex-shrink-0 rounded-2xl text-white flex flex-col items-center justify-center
+                    focus:outline-none focus:ring-4 focus:ring-blue-300 transition-colors
+                    ${codeSpeech.listening ? 'bg-red-500 animate-pulse' : 'bg-[#1a4a8a] hover:bg-[#153d75]'}`}
+                  aria-label={codeSpeech.listening ? '停止语音输入验证码' : '语音输入验证码'}
+                  aria-pressed={codeSpeech.listening}
+                >
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                    />
+                  </svg>
+                  <span className="text-xs mt-1">说验证码</span>
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleSendCode}
+                disabled={sending || countdown > 0}
+                className="mt-2 sm:mt-3 w-full py-3 sm:py-4 rounded-2xl bg-gray-100 hover:bg-gray-200 disabled:opacity-60 text-gray-800
+                           text-base sm:text-lg font-semibold focus:outline-none focus:ring-4 focus:ring-gray-300"
+              >
+                {countdown > 0 ? `${countdown} 秒后重发` : sending ? '发送中…' : '获取验证码'}
               </button>
+              <p className="mt-2 text-sm sm:text-base text-gray-500">
+                演示阶段不发送真实短信，验证码会打印在后端控制台
+              </p>
+              {(phoneSpeech.error || codeSpeech.error) && (
+                <p className="mt-2 text-base text-red-600" role="alert">
+                  {phoneSpeech.error || codeSpeech.error}
+                </p>
+              )}
             </div>
 
-            {/* Submit */}
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-4 bg-[#1a4a8a] hover:bg-[#153d75] text-white text-lg font-semibold rounded-xl transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-blue-900/20"
+              disabled={logging}
+              className="w-full py-4 sm:py-5 bg-[#1a4a8a] hover:bg-[#153d75] text-white text-xl sm:text-2xl font-bold rounded-2xl
+                         transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed
+                         shadow-lg shadow-blue-900/20 focus:outline-none focus:ring-4 focus:ring-blue-300"
             >
-              {loading ? '登录中...' : '登 录'}
+              {logging ? '登录中…' : '登 录'}
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="flex items-center my-8">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="px-4 text-sm text-gray-400">或</span>
-            <div className="flex-1 h-px bg-gray-200" />
-          </div>
-
-          {/* Register Link */}
-          <p className="text-center text-gray-500">
-            还没有账号？{' '}
-            <Link to="/auth/register" className="text-blue-600 hover:text-blue-700 font-semibold">
-              立即注册
-            </Link>
+          <p className="mt-10 text-center text-base text-gray-400">
+            首次使用该手机号将自动创建账号，无需注册
           </p>
         </div>
       </div>

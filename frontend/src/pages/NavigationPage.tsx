@@ -75,9 +75,9 @@ export default function NavigationPage() {
 
   // ---------- 渲染 ----------
   return (
-    <div className="min-h-screen px-6 py-8 max-w-lg mx-auto space-y-8">
+    <div className="min-h-screen px-4 sm:px-6 py-6 sm:py-8 pb-40 sm:pb-44 max-w-lg mx-auto space-y-6 sm:space-y-8">
       {/* 标题 */}
-      <h1 className="text-3xl font-bold text-center">🗺️ 导航</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold text-center">🗺️ 导航</h1>
 
       {/* ── 错误提示 ── */}
       {error && (
@@ -126,7 +126,7 @@ export default function NavigationPage() {
             onChange={(e) => setDestination(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleRoute(); }}
             placeholder="例如：天安门"
-            className="flex-1 text-lg px-4 py-3 border-2 border-gray-300 rounded-xl
+            className="flex-1 min-w-0 text-base sm:text-lg px-3 sm:px-4 py-3 border-2 border-gray-300 rounded-xl
                        focus:outline-none focus:border-blue-500"
           />
           <button
@@ -144,8 +144,8 @@ export default function NavigationPage() {
         {routeResult && (
           <div className="bg-emerald-50 border border-emerald-300 rounded-xl px-5 py-4 space-y-3">
             {/* 总览 */}
-            <div className="flex justify-between items-center">
-              <p className="text-emerald-800 font-bold text-xl">🧭 路线规划</p>
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
+              <p className="text-emerald-800 font-bold text-lg sm:text-xl">🧭 路线规划</p>
               <p className="text-gray-600">
                 <span className="font-semibold text-emerald-700">{routeResult.summary.distance_m} 米</span>
                 {' · '}
@@ -168,9 +168,9 @@ export default function NavigationPage() {
               </summary>
               <ol className="mt-3 space-y-2 text-base text-gray-700">
                 {routeResult.steps.map((s, i) => (
-                  <li key={i} className="flex gap-2">
+                  <li key={i} className="flex flex-wrap gap-2">
                     <span className="text-gray-400 font-mono">{i + 1}.</span>
-                    <span>{s.instruction}</span>
+                    <span className="min-w-0 break-words">{s.instruction}</span>
                     <span className="text-gray-400 text-sm ml-auto">{s.distance_m}m</span>
                   </li>
                 ))}

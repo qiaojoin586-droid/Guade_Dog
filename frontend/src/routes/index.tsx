@@ -11,9 +11,9 @@ import MainPage from '../pages/MainPage';
 import NavigationPage from '../pages/NavigationPage';
 import SafetyPage from '../pages/SafetyPage';
 import SettingsPage from '../pages/SettingsPage';
+import AddressPage from '../pages/AddressPage';
 import FamilyDashboard from '../pages/family/Dashboard';
 import LoginPage from '../pages/auth/LoginPage';
-import RegisterPage from '../pages/auth/RegisterPage';
 import { useAppStore } from '../stores/useAppStore';
 
 // 认证守卫：未登录时重定向到登录页
@@ -54,6 +54,14 @@ export default function AppRoutes() {
         }
       />
       <Route
+        path="/app/addresses"
+        element={
+          <AuthGuard>
+            <AddressPage />
+          </AuthGuard>
+        }
+      />
+      <Route
         path="/app/settings"
         element={
           <AuthGuard>
@@ -72,9 +80,9 @@ export default function AppRoutes() {
         }
       />
 
-      {/* 认证路由 */}
+      {/* 认证路由：验证码登录后自动建号，注册页不再使用 */}
       <Route path="/auth/login" element={<LoginPage />} />
-      <Route path="/auth/register" element={<RegisterPage />} />
+      <Route path="/auth/register" element={<Navigate to="/auth/login" replace />} />
     </>
   );
 }
