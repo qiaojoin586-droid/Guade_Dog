@@ -1,0 +1,341 @@
+# 导盲AI智能体（Guide Dog AI）开发日志
+
+> 项目代号：Guade_Dog
+> 日志完善日期：2026-08-23
+> 数据来源：Git 提交历史（develop 分支）、当前工作区未提交变更、现有代码库结构、设计方案文档
+> 撰写目的：记录项目开发历程、技术决策与遗留问题，供团队成员阅读与归档
+
+---
+
+## 一、项目概述
+
+### 1.1 项目定位
+
+导盲AI智能体是一款面向视障人士的全方位 AI 辅助应用。以**语音交互**为核心入口，集成**视觉感知**、**导航避障**、**安全求救**、**生活服务**、**政策咨询**五大能力，通过多 Agent 协作分工，为视障用户提供"听得到、走得稳、用得安全"的智能出行与生活体验。
+
+### 1.2 技术栈
+
+| 层 | 技术选型 |
+|----|---------|
+| 前端 | Vite 5 + React 18 + TypeScript(strict) + Tailwind CSS + zustand + axios + PWA |
+| 后端 | FastAPI + SQLAlchemy 2.0(async) + Pydantic v2 + Alembic |
+| 数据库 | MySQL 8（aiomysql 驱动） |
+| LLM / 视觉 | 阿里云百炼千问（qwen-max 文本 / qwen-vl-max 视觉），可切换讯飞星火 |
+| 语音 | 讯飞 ASR / TTS（WebSocket），前端 Web Speech API 原型 |
+| 地图导航 | 高德开放平台 API（逆地理编码 + 步行路线规划 + 直线距离查询） |
+| 天气 | 和风天气 API（已接入，未指定城市时按 GPS 坐标自动定位） |
+
+### 1.3 代码规模（截至 2026-08-23）
+
+| 统计项 | 数值 |
+|--------|------|
+| 后端业务代码（backend/app） | 5,370 行 Python |
+| 后端测试代码（backend/tests + 各模块 tests） | 2,286 行 Python，24 个测试文件 |
+| 前端源码（frontend/src） | 2,967 行 TS/TSX |
+| Git 提交数（develop 分支） | 17 次提交（含 !1~!3 三个 MR 合并提交） |
+| 参与开发人员 | 4 人（qiaojoin586-droid、shen、wang1998929g9、玺 Mr.Han） |
+
+### 1.4 团队分工（"四人分工" Agent 编排设计）
+
+按照设计方案，系统拆分为 4 个核心 Agent + 1 个 LLM 路由核心（Orchestrator），每人负责一个模块：
+
+| 成员 | 负责模块 |
+|------|---------|
+| 人A（Conversation 负责人） | 对话模块 + Orchestrator 路由核心 + ASR/TTS 语音链路 |
+| 人B（wang1998929g9） | 导航模块（定位、距离查询、路线规划、高德 API 对接） |
+| 人C（shen） | 安全模块（药品识别、健康问答、钞票识别、SOS） |
+| 人D | 感知模块（天气、提醒、OCR、政策追问） |
+
+---
+
+## 二、开发周期
+
+- **开发周期**：2026-08-10 ～ 2026-08-23，共约 2 周（MVP 阶段）
+- **分支模型**：master / develop 双分支，日常开发在 develop，远程仓库 guade_dog
+- **阶段划分**：
+
+| 阶段 | 时间 | 内容 |
+|------|------|------|
+| 阶段一：骨架搭建 | 08-10 上午 | 项目骨架、数据库初始化、CI 提交通道打通 |
+| 阶段二：认证体系 | 08-10 上午 | 登录注册功能开发与问题修复 |
+| 阶段三：语音链路 | 08-10 晚间 | 语音助手闭环（ASR → LLM → TTS） |
+| 阶段四：文档与规范 | 08-11 | 设计方案入库、文件整理、环境变量模版 |
+| 阶段五：导航模块 | 08-12 | 当前位置定位 + 步行路线规划 |
+| 阶段六：安全模块 | 08-17 | 药品识别 / 健康问答 / 钞票识别 + 前端三卡片页 |
+| 阶段七：整体优化 | 08-19 | 感知模块（天气/提醒）实现 + 全局代码优化 |
+| 阶段八：诚实性与工具链收尾 | 08-20 ~ 08-23（未提交） | 距离查询、定位精度播报、天气自动定位、工具链真实动作分发 |
+
+---
+
+## 三、功能模块清单
+
+| 模块 | 后端目录 | 状态 | 说明 |
+|------|---------|------|------|
+| 认证 Auth | backend/app/auth/ | ✅ 已实现 | JWT 登录/注册/刷新令牌，手机号唯一约束（alembic 002 迁移） |
+| 用户 Users | backend/app/users/ | ✅ 已实现 | 用户资料查询与维护 |
+| 对话 Conversation | backend/app/agents/conversation/ | ✅ 已实现 | ASR 识别、LLM 对话、TTS 播报、语音工具链（6 个工具全部接真实服务，tool_data/action 透传前端） |
+| 导航 Navigation | backend/app/agents/navigation/ | ✅ 已实现 | 高德 API 逆地理编码定位、步行路线规划、直线距离查询（"有多远"）；按定位来源/精度分档播报（需 AMAP_API_KEY） |
+| 安全 Safety | backend/app/agents/safety/ | ✅ 已实现 | 药品识别 / 健康问答 / 钞票识别（含免责声明、紧急词拦截、置信度阈值）；SOS 记录事件 + 播报急救指引（家属通知下期） |
+| 感知 Perception | backend/app/agents/perception/ | ✅ 已实现 | 天气查询（和风 API，未指定城市时按 GPS 自动定位）、提醒设置；OCR/场景识别下期 |
+| 编排 Orchestrator | backend/app/agents/orchestrator.py | ✅ 骨架 | 规则路由表（intent → Agent，含新增 distance 映射），LLM 动态意图分类留 TODO |
+| 家属端 | frontend/src/pages/family/ | ⬜ 占位 | 监护端 Dashboard，下期实现 |
+
+---
+
+## 四、变更记录（按时间顺序，源自 Git 日志）
+
+### 2026-08-10（阶段一~三）
+
+**1. `009e891` 项目骨架搭建 — qiaojoin586-droid（11:01）**
+- 类型：功能新增（基础设施）
+- 规模：142 个文件，+16,548 行
+- 内容：一次性搭好前后端完整骨架。
+  - 后端：FastAPI 应用工厂（main.py）、配置枢纽（config.py，env > yaml > 默认值三级优先）、核心层（core/：errors/llm/security/database/websocket/agent_protocol）、4 个 Agent 模块目录（conversation/navigation/safety/perception，各含 agent/api/models/schemas/service/tests）、auth/users 业务模块、alembic 迁移（001 users 表）、init_db.sql（11 张表）、种子数据脚本。
+  - 前端：Vite + React + TS 工程化配置、路由（登录/注册/主页/导航/安全/设置/家属端 7 个页面）、状态管理（6 个 zustand store）、服务层（api/tokenStorage/navigation/perception/safety/speech）、无障碍组件（AccessibilityProvider/AlertModal/VoiceButton/AudioWave）、PWA manifest。
+  - 同时入库：整体设计方案（导盲AI智能体设计方案.md）、项目骨架生成要求、登录/注册/主页三张 UI 截图、前后端设计文档。
+
+**2. `713ee62` 提交推送测试 — qiaojoin586-droid（11:11）**
+- 类型：工程配置
+- 内容：验证远程推送通道（main.py +1 行）。
+
+**3. `d3b6923` 修复登录注册功能问题 — qiaojoin586-droid（11:33）**
+- 类型：Bug 修复
+- 规模：12 个文件，+552/-67 行
+- 内容：
+  - 新增 alembic 迁移 `002_users_phone_unique.py`（users 表手机号唯一约束）；
+  - 重写 auth 的 api/service/schemas（登录/注册参数校验、错误码细化）；
+  - 前端补 `tokenStorage.ts`（token 持久化）、api.ts 拦截器改造、useAppStore 登录态管理；
+  - 新增 `tests/test_api/test_auth.py`（214 行认证测试用例）。
+
+**4. `aab940d`（!1 合并）移除 tsconfig 中已弃用的 baseUrl — 玺 Mr.Han 审核合入（11:40 / 08-10 03:41）**
+- 类型：代码重构 / 工程规范
+- 内容：移除 tsconfig.json 中已弃用的 `baseUrl`，改用相对路径别名，消除 TS 编译弃用告警。这是首个走 MR 评审（!1）合入的提交。
+
+**5. `6eb1f04` add LICENSE — 玺 Mr.Han（12:52）**
+- 类型：工程配置
+- 内容：项目采用 **GPL v2** 开源协议。
+
+**6. `23c3096` 完成语音助手开发，LLM 能识别麦克风语音，测试正常 — qiaojoin586-droid（22:51）**
+- 类型：功能新增（核心闭环）
+- 规模：25 个文件，+1,390/-79 行
+- 内容：打通"语音输入 → ASR → LLM → TTS 播报"最小闭环：
+  - 后端 `conversation/service/` 新增 asr.py（讯飞 ASR WebSocket 流式识别）、chat.py（LLM 对话）、tts.py（TTS 合成）、tools.py（语音工具链雏形）；
+  - `core/llm.py` 扩展为双供应商客户端（DashScope OpenAI 兼容接口 + 讯飞星火 WebSocket，+187 行）；
+  - `utils/xfyun.py` 讯飞鉴权签名工具、`utils/audio.py` 音频转码；
+  - config.py 支持讯飞/模型相关配置项；
+  - 前端新增 `hooks/useVoiceRecorder.ts`（麦克风录音）、MainPage 集成语音交互（+102 行）、speechService 扩展；
+  - 新增 6 个语音链路测试文件（test_speech_chat / test_speech_llm / test_speech_tools / test_xfyun / test_audio 等）。
+
+### 2026-08-11（阶段四）
+
+**7. `2778bfc` 加上设计方案 — qiaojoin586-droid（16:20）**
+- 类型：文档
+- 内容：补充入库四个模块级开发思路文档（语音/导航/安全/感知模块开发思路.md，共 +770 行），指导后续模块开发。
+
+**8. `ae5315a`（!2 合并）文件优化 — 玺 Mr.Han 审核合入（16:23 / 08:25）**
+- 类型：代码重构（文档整理）
+- 内容：删除已被设计方案与模块思路文档取代的 backend_design_plan.md、frontend_design_plan.md（-932 行），避免文档冗余与版本漂移。
+
+**9. `b84a84d`（!3 合并）环境变量模版更新 — 玺 Mr.Han 审核合入（16:40 / 08:41）**
+- 类型：工程配置
+- 内容：重写 .env.example（+25/-17），覆盖 DASHSCOPE_API_KEY、XFYUN_*、AMAP_API_KEY 等新引入的外部服务密钥占位，全部为占位符不含真实密钥。
+
+### 2026-08-12（阶段五）
+
+**10. `a6c4d72` feat(navigation): 实现导航模块 — wang1998929g9（15:20）**
+- 类型：功能新增
+- 规模：10 个文件，+1,099/-53 行
+- 内容：
+  - 后端 `navigation/service/amap.py`（高德 API 客户端：逆地理编码、步行路径规划，+262 行）、`navigation.py`（业务编排，+196 行）；
+  - agent.py/api.py/schemas.py 从占位骨架升级为完整实现（定位 intent=location、路线 intent=navigation）；
+  - 前端 NavigationPage 完整 UI（+190 行）、navigationService 扩展、useNavigationStore 状态管理、types 定义；
+  - 模块内 test_agent.py 用例扩充（+68 行）。
+
+### 2026-08-17（阶段六）
+
+**11. `914281e` chore: 推送前清理 — shen（23:07）**
+- 类型：工程配置
+- 内容：tsbuildinfo 移出 git 跟踪、.env.example 改占位、新增 README.md（113 行，含快速开始 / API Key 开通指引 / 协作红线 / 已知问题清单）。
+
+**12. `9cb54ee` feat(safety): 药品识别/健康问答/钞票识别 + 修复8项与新增用例 — shen（23:17）**
+- 类型：功能新增 + Bug 修复
+- 规模：14 个文件，+1,139/-13 行
+- 内容：
+  - `safety/service/` 新增 vision.py（qwen-vl-max 视觉识别统一入口，+169 行）、medicine.py（药品识别）、health.py（健康问答 + 紧急词拦截）、currency.py（钞票识别 + 置信度阈值）；
+  - agent.py 按意图分发（sos/health/medicine/currency），VisionError 统一降级处理；
+  - 未配置 API Key 时的优雅降级（药品/钞票返回 50020，健康问答返回 50021，紧急词问答仍可用）；
+  - 新增 6 个测试文件（test_vision/test_medicine/test_health/test_currency/test_api，共 583 行用例）。
+
+**13. `88fe407` feat(frontend): 安全助手三卡片页 + 入口跳转 + 错误文案对齐 — shen（23:17）**
+- 类型：功能新增（前端）
+- 规模：4 个文件，+229/-8 行
+- 内容：SafetyPage 实现药品/健康/钞票三卡片入口（拍照/上传/提问交互）、MainPage 入口跳转、错误文案与后端降级码对齐。
+
+### 2026-08-19（阶段七）
+
+**14. `1564f19` 项目代码优化 — qiaojoin586-droid（00:29）**
+- 类型：功能新增 + 代码重构 + 性能优化（全局优化）
+- 规模：46 个文件，+2,044/-126 行
+- 内容：
+  - **感知模块落地**：新增 `perception/service/weather.py`（和风天气 API，+258 行）与 `reminder.py`（提醒设置，+164 行），agent.py/api.py 从骨架升级为实现（天气 intent=weather、提醒 intent=reminder）；
+  - **对话链路优化**：chat.py JSON 容错解析增强、tools.py 工具链扩展（+61 行）、tts.py 稳定性改进；
+  - **导航健壮性**：amap.py 容错处理、test_amap_robust.py 新增（+60 行）；**修复 P1 NameError**（api.py 补导入 RouteSummaryOut/RouteStepOut）、挂接 JWT 鉴权；
+  - **公共层改进**：utils/image.py 图片处理强化（+71 行，含尺寸/格式校验）、config.py 新增天气配置项、orchestrator 路由表补 weather/reminder 映射；
+  - **测试大规模补齐**：test_weather（+331 行）、test_reminder（+153 行）、orchestrator 路由测试（+61 行）等，全局测试覆盖显著提升；
+  - 前端 MainPage / navigationService / speechService / tokenStorage 细节修复。
+
+### 2026-08-20 ~ 08-23（阶段八 · 工作区未提交）
+
+**15. 未提交变更：距离查询 + 诚实定位播报 + 天气自动定位 + 工具链真实动作分发**
+- 状态：已实现，待提交（19 个文件，约 +330/-70 行）
+- 内容：
+  - **导航新增 distance 意图**：`navigation.distance` 工具与 intent 落地——"有多远"用球面直线距离（haversine）直接回答，与步行规划的 TOO_FAR 限制解耦（跨省目的地也能答距离）；orchestrator 路由表补 distance → navigation 映射；
+  - **诚实定位播报**：定位精度（accuracy）从浏览器 → coords → agent 全链路透传；按来源/精度分档措辞——IP 粗定位明说"可能…附近，误差可能较大"，低精度坐标（>1km）用"大致…附近"，仅高精度 GPS 用确定口吻，践行"宁可不精确，不可说错"；
+  - **天气自动定位**：用户未指定城市时，用前端 GPS 坐标逆地理编码取城市再查天气（刻意不用 IP 粗定位——跨市错误比追问更糟），播报前缀"根据您的当前位置…"；
+  - **工具链真实动作分发**：TOOL_REGISTRY 全部 6 个工具的 handler 从日志占位升级为真实分发（走 orchestrator 路由到对应 Agent）；chat API 将工具结构化结果与动作标识（tool_data / action，如 trigger_sos）透传前端，前端 ChatResult 类型同步扩展；
+  - **测试补充与重组**：新增 test_conversation_api.py（tool_data/action 透传）、test_distance.py（haversine/距离查询）；扩充导航 agent（IP/低精度措辞）、perception、orchestrator（distance 路由）与语音链路测试；safety 模块内重复测试移除，统一由 backend/tests/test_safety 维护。
+
+---
+
+## 五、代码分析（架构与模块关联）
+
+### 5.1 整体架构
+
+系统采用 **MVP 单体后端 + 多 Agent 模块化**架构，遵循"演进式设计"：先跑通最小闭环，后期再向 Agent 编排/微服务演进。
+
+```
+用户（前端 React）
+   │  HTTP（axios，/api 代理到后端 8000）
+   ▼
+FastAPI 应用工厂（main.py）
+   ├── 中间件：request_id 全链路追踪（X-Request-ID 沿用/生成）
+   ├── 统一异常处理（HTTPException → 统一错误码体系）
+   ├── auth / users 路由（JWT 鉴权）
+   └── 4 个 Agent 模块路由（每模块一行挂载，集成点清晰）
+          │
+          ▼
+   Orchestrator（LLM 路由核心，骨架阶段为规则路由表）
+          ├── Conversation Agent（对话/ASR/TTS/工具链）
+          ├── Navigation Agent（高德定位/距离/路线）
+          ├── Safety Agent（药品/健康/钞票/SOS）
+          └── Perception Agent（天气/提醒/OCR预留）
+```
+
+### 5.2 关键实现逻辑
+
+**（1）Agent 契约与路由（core/agent_protocol.py + orchestrator.py）**
+- 所有 Agent 实现统一契约 `handle(req: AgentRequest) -> AgentResponse`，字段包含 intent / params / user_id 与 text / action / data / needs_followup；
+- Orchestrator 维护 intent → 模块映射表（如 weather/ocr/vision/reminder → perception，location/navigation/distance → navigation，health/medicine/currency/sos → safety），未匹配意图回退 conversation；
+- 当前为硬编码规则路由，LLM 动态意图分类标记为 TODO——这是"规则优先保证可控，再逐步智能化"设计原则的体现。
+
+**（2）语音闭环（conversation 模块）**
+- 前端 useVoiceRecorder 采集麦克风音频 → speechService 上传；
+- asr.py 通过讯飞 WebSocket 流式识别为文本 → chat.py 调用 LLM（双供应商：DashScope OpenAI 兼容接口 / 星火 WS，由 LLM_PROVIDER 配置切换）→ tools.py 解析 JSON 结构化工具调用并真实分发到对应 Agent（orchestrator 路由）→ tts.py 合成语音返回；
+- 工具的结构化结果与动作标识（tool_data / action）经 chat API 透传前端，供 UI 触发后续动作（如 SOS 上报、导航跳转）；
+- LLM 客户端（core/llm.py）统一封装 json_mode（DashScope 用 response_format=json_object，星火用系统提示词约束 + chat.py 容错解析）。
+
+**（3）安全模块三能力（safety 模块）**
+- vision.py 统一封装 qwen-vl-max 视觉调用，medicine/currency 复用；
+- 三条安全红线落在代码里：医疗免责声明必播、识别图片不落盘不落日志（隐私）、钞票置信度宁严勿松（不播错金额）；
+- VisionError 异常体系统一降级：未配置 Key 返回业务码 50020/50021 而非崩溃，前端文案与后端降级码一一对齐。
+
+**（4）导航模块（navigation 模块）**
+- amap.py 封装高德逆地理编码（坐标 → 结构化地址）与步行路线规划（返回分段指引）；
+- 新增 distance 意图："有多远"用球面直线距离（haversine）回答，不依赖步行规划，远距离目的地不再受 TOO_FAR 限制；
+- 诚实定位：浏览器定位精度（accuracy）随坐标透传，按来源（GPS/IP）与精度阈值（1km）分档生成播报措辞，避免跨市误报；
+- 前端 NavigationPage + useNavigationStore 管理定位与路线状态。
+
+**（5）感知模块（perception 模块）**
+- 天气查询支持"未指定城市"场景：优先用前端 GPS 坐标逆地理编码取城市，定位失败才追问；刻意不用 IP 粗定位（城市级精度且常跨市错误）；
+- 自动定位所得的播报如实说明依据（"根据您的当前位置…"），与诚实定位原则一致。
+
+**（6）配置与错误体系**
+- config.py 三级优先（环境变量 > config.yaml > 默认值），敏感密钥只允许进 backend/.env（.gitignore 排除）；
+- errors.py 统一错误码（4xxxx 客户端 / 5xxxx 服务端），main.py 统一异常处理器把异常映射为带 request_id 的标准响应体。
+
+### 5.3 前后端协作模式
+
+- 前端服务层（services/）与后端 API 一一对应（safetyService ↔ /safety/*，navigationService ↔ /navigation/*，speechService ↔ /speech/*）；
+- zustand store 按模块拆分（useSafetyStore / useNavigationStore / usePerceptionStore 等），页面只消费 store；
+- vite 开发服务器将 /api 代理到后端 8000，CORS 放行本机与局域网（支持手机真机联调）。
+
+### 5.4 测试策略
+
+- 后端测试全 mock、不触网（conftest.py 统一夹具），覆盖认证、语音链路、安全三功能、导航（含距离查询/定位措辞）、天气/提醒、orchestrator 路由等，共 24 个测试文件约 2,286 行；
+- 前端以 `tsc --noEmit` 严格类型检查作为门禁；
+- 测试代码与业务代码比例约 1:2.3，测试文化良好。
+
+---
+
+## 六、问题与改进
+
+### 6.1 开发过程中遇到的技术难点与解决方案
+
+| # | 难点 | 解决方案 | 对应提交 |
+|---|------|---------|---------|
+| 1 | uvicorn 下应用日志不输出（root logger 无 handler） | main.py 中 basicConfig 仅在 root 无 handler 时生效，不影响 uvicorn 自身日志 | 23c3096 |
+| 2 | LLM 双供应商（DashScope/星火）接口协议差异大 | core/llm.py 按 LLM_PROVIDER 分发；json_mode 差异用"response_format + 提示词约束 + 容错解析"三层兜底 | 23c3096 / 1564f19 |
+| 3 | 视觉模型未配置/欠费时用户侧体验 | 建立业务降级码体系（50020/50021），紧急词健康问答本地可用，前端文案对齐 | 9cb54ee / 88fe407 |
+| 4 | 登录注册并发下手机号重复 | alembic 002 迁移加唯一约束 + 服务层校验 + 214 行认证测试 | d3b6923 |
+| 5 | 视障场景下"说错比不说更危险" | 安全模块兜底文案策略（宁可说"不确定/开发中"不说错）+ 钞票置信度从严阈值 | 9cb54ee |
+| 6 | 隐私合规（语音文本与识别图片） | 只记长度不落原文，图片不落盘不落日志，不进 conversation_logs | 9cb54ee / 914281e |
+| 7 | 高德 API 网络异常与返回结构不稳定 | amap.py 容错封装 + test_amap_robust.py 专项测试 | 1564f19 |
+| 8 | 步行规划对远距离目的地报 TOO_FAR，"有多远"类问题无解 | 拆分 distance 意图：球面直线距离查询，与路线规划解耦 | 未提交 |
+| 9 | 桌面浏览器无 GPS 芯片，WiFi/网络推算精度差甚至跨市错误 | accuracy 全链路透传 + 按来源/精度分档播报（IP/低精度说"可能/大致"，高精度才用确定口吻） | 未提交 |
+
+### 6.2 已知遗留问题（原 README 清单，逐项核对更新至 08-23）
+
+1. ✅ **已修复**（1564f19）：导航 POST /navigation/route 未导入 RouteSummaryOut/RouteStepOut 的 NameError（规划成功时 500）；
+2. ✅ **已升级**（未提交）：语音工具链 handler 原为日志占位，现已全部接真实动作分发；剩余：前端对 action（如 trigger_sos）的 UI 消费待实现；
+3. ✅ **已收敛**（1564f19 起）：模块业务端点（/safety/*、/navigation/*、/speech/*）均已挂 get_current_user 鉴权；剩余：接口限流；
+4. SOS 求救当前仅记录事件 + 播报急救指引，家属通知（短信/推送/WebSocket）留待 Phase 2。
+
+### 6.3 后续优化建议
+
+**短期（P0/P1）**
+1. 前端消费 tool_data/action（如 trigger_sos），完成"语音 → 动作"UI 闭环（SOS 报警反馈、导航页跳转）；
+2. 为全部业务端点补接口限流与压测（JWT 鉴权已挂齐）；
+3. Orchestrator 接入 LLM 意图分类，替代硬编码路由表（需评估误路由的兜底策略）。
+
+**中期（Phase 2）**
+4. SOS 家属通知链路（WebSocket 推送 + 短信）与家属端 Dashboard 页面；
+5. 感知模块补齐 OCR（药品说明书朗读、票据识别）与场景识别；
+6. 前端补 E2E 测试（如 Playwright），覆盖核心语音交互路径。
+
+**长期（Phase 3）**
+7. 向微服务/Agent 编排演进：任务队列、独立部署、独立扩缩容；
+8. RAG 政策知识库（设计方案 v1.6 已预留评估点，第一阶段不引入向量库）；
+9. 离线降级能力：语音唤醒、SOS 等关键功能支持弱网/离线运行；
+10. 性能优化：视觉识别响应时间、TTS 流式播报降低首字延迟。
+
+### 6.4 团队协作规范沉淀（贯穿全程）
+
+- **提交信息约定**：feat(模块): 中文描述；共享区与模块代码分批提交；
+- **MR 评审机制**：!1~!3 均由玺 Mr.Han 审核合入，共享区（app/core/*）改动需 4 人集成评审；
+- **协作红线**：密钥只进 backend/.env；医疗免责声明必播；识别图片不落盘；ASR 文本不落原文。
+
+---
+
+## 附：Git 提交历史速查表
+
+| 日期 | 提交 | 类型 | 摘要 | 作者 |
+|------|------|------|------|------|
+| 08-10 | 009e891 | feat | 项目骨架搭建（142 文件） | qiaojoin586-droid |
+| 08-10 | 713ee62 | chore | 提交推送测试 | qiaojoin586-droid |
+| 08-10 | d3b6923 | fix | 修复登录注册功能问题 | qiaojoin586-droid |
+| 08-10 | aab940d (!1) | refactor | 移除 tsconfig 弃用的 baseUrl（玺 Mr.Han 审核） | qiaojoin586-droid |
+| 08-10 | 6eb1f04 | chore | add LICENSE（GPL v2） | 玺 Mr.Han |
+| 08-10 | 23c3096 | feat | 语音助手闭环（ASR→LLM→TTS） | qiaojoin586-droid |
+| 08-11 | 2778bfc | docs | 补充四个模块开发思路文档 | qiaojoin586-droid |
+| 08-11 | ae5315a (!2) | refactor | 文件优化，删除过时设计文档（玺 Mr.Han 审核） | qiaojoin586-droid |
+| 08-11 | b84a84d (!3) | chore | 环境变量模版更新（玺 Mr.Han 审核） | qiaojoin586-droid |
+| 08-12 | a6c4d72 | feat | 导航模块（定位+步行路线规划） | wang1998929g9 |
+| 08-17 | 914281e | chore | 推送前清理 + 新增 README | shen |
+| 08-17 | 9cb54ee | feat+fix | 安全模块三功能 + 修复8项 | shen |
+| 08-17 | 88fe407 | feat | 前端安全助手三卡片页 | shen |
+| 08-19 | 1564f19 | feat+refactor | 项目代码优化（感知模块落地，46 文件） | qiaojoin586-droid |
+| 08-23 | 未提交 | feat | 距离查询 + 诚实定位 + 天气自动定位 + 工具链真实分发功能优化修复（19 文件） | 待提交 |
+
+---
+
+*本日志由 Git 历史、当前工作区变更与代码库现状整理生成，如与实际记忆有出入，以 Git 记录为准。*
